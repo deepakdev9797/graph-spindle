@@ -42,22 +42,36 @@ public final class RetrievalStatements {
             RETURN c ORDER BY c.recordedAt DESC, c.id DESC LIMIT $limit
             """;
 
+    /** Relation claims with the given statuses where the entity is subject or object, newest first. */
+    public static final String RELATION_CLAIMS_OF_ENTITY = """
+            MATCH (c:Claim {brainId: $brainId})
+            WHERE (c.subjectId = $id OR c.objectId = $id) AND c.status IN $statuses AND c.kind = 'RELATION'
+            RETURN c ORDER BY c.recordedAt DESC, c.id DESC LIMIT $limit
+            """;
+
     /**
-     * Every claim (any status) where the entity is subject or object, with its SUPERSEDES targets,
-     * oldest first: the record-time timeline for point-in-time reads and history (ADR-026).
+     * The newest {@code $limit} claims (any status) recorded at or before {@code $asOf} (null: no
+     * bound) where the entity is, or was before a merge re-pointed it, subject or object; with their
+     * SUPERSEDES targets and the earliest {@code recordedAt} of a superseding claim. Newest first: the
+     * record-time timeline for point-in-time reads and history (ADR-026), reversed by the reader.
      */
     public static final String CLAIM_TIMELINE_OF_ENTITY = """
             MATCH (c:Claim {brainId: $brainId})
-            WHERE c.subjectId = $id OR c.objectId = $id
-            WITH c ORDER BY c.recordedAt, c.id LIMIT $limit
+            WHERE (c.subjectId = $id OR c.objectId = $id OR c.originalSubjectId = $id OR c.originalObjectId = $id)
+              AND ($asOf IS NULL OR c.recordedAt <= $asOf)
+            WITH c ORDER BY c.recordedAt DESC, c.id DESC LIMIT $limit
             OPTIONAL MATCH (c)-[s:SUPERSEDES {brainId: $brainId}]->(o:Claim {brainId: $brainId})
             WITH c, collect(o.id) AS supersedes, head(collect(s.reason)) AS reason
-            RETURN c, supersedes, reason ORDER BY c.recordedAt, c.id
+            OPTIONAL MATCH (n:Claim {brainId: $brainId})-[:SUPERSEDES {brainId: $brainId}]->(c)
+            WITH c, supersedes, reason, min(n.recordedAt) AS supersededAt
+            RETURN c, supersedes, reason, supersededAt ORDER BY c.recordedAt DESC, c.id DESC
             """;
 
+    /** Creation time of an entity and, when it was merged, the merge instant. */
     public static final String ENTITY_CREATED_AT = """
             MATCH (n:Entity {brainId: $brainId, id: $id})
-            RETURN n.createdAt AS createdAt
+            OPTIONAL MATCH (n)-[m:MERGED_INTO {brainId: $brainId}]->(:Entity {brainId: $brainId})
+            RETURN n.createdAt AS createdAt, m.at AS mergedAt
             """;
 
     /** The connected SUPERSEDES chain of a claim (both directions), oldest first. */

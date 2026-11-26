@@ -41,7 +41,19 @@ public record BrainConfig(
         rawContentMaxChars = rawContentMaxChars == null ? 32_000 : rawContentMaxChars;
         dedupWindowHours = dedupWindowHours == null ? 24 : dedupWindowHours;
         limits = limits == null ? BrainLimits.defaults() : limits;
-        vocabulary = vocabulary == null ? VocabularyConfig.core() : vocabulary;
+        vocabulary = vocabulary == null ? OMITTED_VOCABULARY : vocabulary;
+    }
+
+    /**
+     * The instance used when {@code vocabulary} is absent: equal to {@link VocabularyConfig#core()},
+     * but recognisable by identity, so a PATCH without a vocabulary keeps the brain's (QA F7).
+     */
+    private static final VocabularyConfig OMITTED_VOCABULARY = VocabularyConfig.core();
+
+    /** Whether this config was built without a vocabulary (it then carries the core default). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean vocabularyOmitted() {
+        return vocabulary == OMITTED_VOCABULARY;
     }
 
     public static BrainConfig defaults() {

@@ -116,32 +116,54 @@ public class GraphReader {
     }
 
     /** Claims where the entity is subject or object, with one of the statuses, newest first. */
+    /** Relation claims with the given statuses where the entity is subject or object, newest first. */
+    public List<ClaimView> relationClaimsOfEntity(BrainScope scope, String entityId, List<String> statuses,
+            int limit) {
+        return tx.read(scope, t -> t.run(RetrievalStatements.RELATION_CLAIMS_OF_ENTITY, P.of("id", entityId,
+                "statuses", statuses, "limit", (long) limit)).list(r -> Rows.claim(r.get("c"))));
+    }
+
     public List<ClaimView> claimsOfEntity(BrainScope scope, String entityId, List<String> statuses, int limit) {
         return tx.read(scope, t -> t.run(RetrievalStatements.CLAIMS_OF_ENTITY, P.of("id", entityId, "statuses",
                 statuses, "limit", (long) limit)).list(r -> Rows.claim(r.get("c"))));
     }
 
     /**
-     * The record-time timeline of an entity: every claim where it is subject or object, oldest
-     * first, at most {@code limit} (ADR-026).
+     * The record-time timeline of an entity: the newest {@code limit} claims recorded at or before
+     * {@code asOf} (null: all) where it is, or was before a merge, subject or object, returned oldest
+     * first (ADR-026).
      */
-    public List<TimedClaim> claimTimeline(BrainScope scope, String entityId, int limit) {
-        return tx.read(scope, t -> t.run(RetrievalStatements.CLAIM_TIMELINE_OF_ENTITY, P.of("id", entityId, "limit",
-                (long) limit)).list(r -> {
+    public List<TimedClaim> claimTimeline(BrainScope scope, String entityId, java.time.Instant asOf, int limit) {
+        List<TimedClaim> newestFirst = tx.read(scope, t -> t.run(RetrievalStatements.CLAIM_TIMELINE_OF_ENTITY,
+                P.of("id", entityId, "asOf", asOf == null ? null : asOf.atZone(java.time.ZoneOffset.UTC), "limit",
+                        (long) limit)).list(r -> {
                     var c = r.get("c");
                     java.time.Instant recorded = c.get("recordedAt").asZonedDateTime().toInstant();
                     java.time.Instant changed = c.get("statusChangedAt").isNull() ? recorded
                             : c.get("statusChangedAt").asZonedDateTime().toInstant();
                     return new TimedClaim(Rows.claim(c), recorded, changed, r.get("supersedes").asList(v -> v.asString()),
-                            r.get("reason").asString(null));
+                            r.get("reason").asString(null), instantOrNull(r.get("supersededAt")),
+                            c.get("originalSubjectId").asString(null), instantOrNull(c.get("subjectRepointedAt")),
+                            c.get("originalObjectId").asString(null), instantOrNull(c.get("objectRepointedAt")));
                 }));
+        List<TimedClaim> out = new ArrayList<>(newestFirst);
+        java.util.Collections.reverse(out);
+        return out;
     }
 
-    /** When the entity node was created, if it exists. */
-    public Optional<java.time.Instant> entityCreatedAt(BrainScope scope, String entityId) {
+    private static java.time.Instant instantOrNull(org.neo4j.driver.Value v) {
+        return v == null || v.isNull() ? null : v.asZonedDateTime().toInstant();
+    }
+
+    /** Record-time facts of an entity node: creation and, when merged, the merge instant. */
+    public record EntityTimes(java.time.Instant createdAt, java.time.Instant mergedAt) {
+    }
+
+    /** When the entity node was created and merged, if it exists (the node itself, merges not followed). */
+    public Optional<EntityTimes> entityTimes(BrainScope scope, String entityId) {
         return tx.read(scope, t -> t.run(RetrievalStatements.ENTITY_CREATED_AT, P.of("id", entityId)).list().stream()
-                .findFirst().map(r -> r.get("createdAt").isNull() ? null
-                        : r.get("createdAt").asZonedDateTime().toInstant()));
+                .findFirst().map(r -> new EntityTimes(instantOrNull(r.get("createdAt")),
+                        instantOrNull(r.get("mergedAt")))));
     }
 
     /** The SUPERSEDES chain the claim belongs to, oldest first, each with its links. Empty if not found. */

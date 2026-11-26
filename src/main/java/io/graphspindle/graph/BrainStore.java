@@ -60,6 +60,30 @@ public class BrainStore {
      */
     public BrainRecord update(BrainScope scope, Long expectedVersion, String name, boolean setDescription,
             String description, String configJson) {
+        return update(scope, expectedVersion, name, setDescription, description, configJson, null, null);
+    }
+
+    /**
+     * Vocabulary names whose usage must be checked before a config write: entity types, predicate
+     * names, and {@code {type, predicate}} attribute pairs (SCHEMA §11).
+     */
+    public record UsageQuery(java.util.Collection<String> types, java.util.Collection<String> predicates,
+            java.util.Collection<java.util.Map<String, String>> pairs) {
+
+        public boolean isEmpty() {
+            return types.isEmpty() && predicates.isEmpty() && pairs.isEmpty();
+        }
+    }
+
+    /**
+     * Like {@link #update(BrainScope, Long, String, boolean, String, String)}, but first counts the
+     * usage of {@code usage} in the same transaction, under the Brain lock that every knowledge write
+     * takes, and hands it to {@code onUsage}, which may throw to abort the write. So no claim can start
+     * using a name between the in-use check and the config write.
+     */
+    public BrainRecord update(BrainScope scope, Long expectedVersion, String name, boolean setDescription,
+            String description, String configJson, UsageQuery usage,
+            java.util.function.Consumer<java.util.Map<String, Long>> onUsage) {
         return tx.write(scope, t -> {
             List<Record> rows = t.run(BrainStatements.LOCK).list();
             if (rows.isEmpty()) {
@@ -72,6 +96,9 @@ public class BrainStore {
             if (expectedVersion != null && expectedVersion != current.configVersion()) {
                 throw new GraphSpindleException(ErrorCode.PRECONDITION_FAILED, "configVersion does not match If-Match",
                         java.util.Map.of("configVersion", current.configVersion()), null);
+            }
+            if (usage != null && !usage.isEmpty() && onUsage != null) {
+                onUsage.accept(usage(t, usage.types(), usage.predicates(), usage.pairs()));
             }
             return toRecord(t.run(BrainStatements.UPDATE, P.of("name", name, "setDescription", setDescription,
                     "description", description, "configJson", configJson)).single());
@@ -107,18 +134,7 @@ public class BrainStore {
      */
     public java.util.Map<String, Long> usage(BrainScope scope, java.util.Collection<String> types,
             java.util.Collection<String> predicates) {
-        return tx.read(scope, t -> {
-            java.util.Map<String, Long> used = new java.util.TreeMap<>();
-            if (!types.isEmpty()) {
-                t.run(BrainStatements.TYPES_IN_USE, P.of("types", List.copyOf(types))).list()
-                        .forEach(r -> used.put(r.get("name").asString(), r.get("n").asLong()));
-            }
-            if (!predicates.isEmpty()) {
-                t.run(BrainStatements.PREDICATES_IN_USE, P.of("predicates", List.copyOf(predicates))).list()
-                        .forEach(r -> used.merge(r.get("name").asString(), r.get("n").asLong(), Long::sum));
-            }
-            return used;
-        });
+        return tx.read(scope, t -> usage(t, types, predicates, List.of()));
     }
 
     /**
@@ -130,12 +146,26 @@ public class BrainStore {
         if (pairs.isEmpty()) {
             return java.util.Map.of();
         }
-        return tx.read(scope, t -> {
-            java.util.Map<String, Long> used = new java.util.TreeMap<>();
+        return tx.read(scope, t -> usage(t, List.of(), List.of(), pairs));
+    }
+
+    private static java.util.Map<String, Long> usage(io.graphspindle.graph.internal.ScopedTx t,
+            java.util.Collection<String> types, java.util.Collection<String> predicates,
+            java.util.Collection<java.util.Map<String, String>> pairs) {
+        java.util.Map<String, Long> used = new java.util.TreeMap<>();
+        if (!types.isEmpty()) {
+            t.run(BrainStatements.TYPES_IN_USE, P.of("types", List.copyOf(types))).list()
+                    .forEach(r -> used.put(r.get("name").asString(), r.get("n").asLong()));
+        }
+        if (!predicates.isEmpty()) {
+            t.run(BrainStatements.PREDICATES_IN_USE, P.of("predicates", List.copyOf(predicates))).list()
+                    .forEach(r -> used.merge(r.get("name").asString(), r.get("n").asLong(), Long::sum));
+        }
+        if (!pairs.isEmpty()) {
             t.run(BrainStatements.ATTRIBUTES_ON_TYPES_IN_USE, P.of("pairs", List.copyOf(pairs))).list()
                     .forEach(r -> used.put(r.get("name").asString(), r.get("n").asLong()));
-            return used;
-        });
+        }
+        return used;
     }
 
     private static BrainRecord toRecord(Record r) {

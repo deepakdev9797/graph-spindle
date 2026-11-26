@@ -119,9 +119,9 @@ public class NodeViewService {
     public NodeView current(Actor actor, String brainId, String entityId) {
         BrainScope scope = brains.requireActive(brainId);
         EntityView e = resolve(scope, entityId);
-        List<ClaimView> active = reader.claimsOfEntity(scope, e.id(), List.of("ACTIVE"), MAX_RELATIONSHIPS + 1);
-        List<ClaimView> relations = active.stream().filter(c -> c.relation() && positive(c)).toList();
-        boolean truncated = active.size() > MAX_RELATIONSHIPS;
+        List<ClaimView> relations = reader.relationClaimsOfEntity(scope, e.id(), List.of("ACTIVE"),
+                MAX_RELATIONSHIPS + 1).stream().filter(NodeViewService::positive).toList();
+        boolean truncated = relations.size() > MAX_RELATIONSHIPS;
         Map<String, Object> properties = new TreeMap<>(e.attributes());
         return node(scope, e, entityId, null, properties, relationships(scope, e.id(), relations), truncated);
     }
@@ -130,14 +130,10 @@ public class NodeViewService {
     public NodeView asOf(Actor actor, String brainId, String entityId, Instant asOf) {
         Objects.requireNonNull(asOf, "asOf");
         BrainScope scope = brains.requireActive(brainId);
-        EntityView e = resolve(scope, entityId);
-        Instant created = reader.entityCreatedAt(scope, e.id()).orElse(null);
-        if (created != null && created.isAfter(asOf)) {
-            throw GraphSpindleException.notFound("entity at " + asOf, entityId);
-        }
-        List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), MAX_TIMELINE_CLAIMS + 1);
+        EntityView e = resolveAt(scope, entityId, asOf);
+        List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), asOf, MAX_TIMELINE_CLAIMS + 1);
         boolean truncated = timeline.size() > MAX_TIMELINE_CLAIMS;
-        List<TimedClaim> believed = believedAt(timeline.stream().limit(MAX_TIMELINE_CLAIMS).toList(), asOf);
+        List<TimedClaim> believed = believedAt(newest(timeline, MAX_TIMELINE_CLAIMS), asOf, e.id());
         Map<String, Object> properties = properties(believed, e.id());
         List<ClaimView> relations = believed.stream().map(TimedClaim::claim).filter(ClaimView::relation).toList();
         return node(scope, e, entityId, asOf, properties, relationships(scope, e.id(), relations), truncated);
@@ -145,8 +141,25 @@ public class NodeViewService {
 
     /** The claims believed at {@code asOf} (for {@code include=claims} on a point-in-time read). */
     public List<ClaimView> claimsAsOf(BrainScope scope, String entityId, Instant asOf) {
-        return believedAt(reader.claimTimeline(scope, entityId, MAX_TIMELINE_CLAIMS), asOf).stream()
+        return believedAt(reader.claimTimeline(scope, entityId, asOf, MAX_TIMELINE_CLAIMS), asOf, entityId).stream()
                 .map(TimedClaim::claim).toList();
+    }
+
+    /**
+     * The entity a point-in-time read describes: the requested entity itself when it was merged
+     * only after {@code asOf} (its facts were then its own), else the merge survivor. Before the
+     * requested entity's own creation the read is 404.
+     */
+    public EntityView resolveAt(BrainScope scope, String entityId, Instant asOf) {
+        EntityView e = resolve(scope, entityId);
+        GraphReader.EntityTimes own = reader.entityTimes(scope, entityId).orElse(null);
+        if (own != null && own.createdAt() != null && own.createdAt().isAfter(asOf)) {
+            throw GraphSpindleException.notFound("entity at " + asOf, entityId);
+        }
+        if (!e.id().equals(entityId) && own != null && own.mergedAt() != null && own.mergedAt().isAfter(asOf)) {
+            return reader.entity(scope, entityId).orElse(e);
+        }
+        return e;
     }
 
     /** The entity's property and relationship changes in record time, oldest first. */
@@ -154,9 +167,9 @@ public class NodeViewService {
         BrainScope scope = brains.requireActive(brainId);
         int max = Paging.limit(limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
         EntityView e = resolve(scope, entityId);
-        List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), MAX_TIMELINE_CLAIMS + 1);
+        List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), null, MAX_TIMELINE_CLAIMS + 1);
         boolean truncated = timeline.size() > MAX_TIMELINE_CLAIMS;
-        List<PendingChange> pending = replay(timeline.stream().limit(MAX_TIMELINE_CLAIMS).toList(), e.id());
+        List<PendingChange> pending = replay(newest(timeline, MAX_TIMELINE_CLAIMS), e.id());
         if (pending.size() > max) {
             pending = pending.subList(pending.size() - max, pending.size());
             truncated = true;
@@ -214,33 +227,102 @@ public class NodeViewService {
 
     // ---- belief and replay ------------------------------------------------------------------
 
-    /** The claims of the timeline believed at {@code at}. */
+    /** The newest {@code max} claims of an oldest-first timeline. */
+    private static List<TimedClaim> newest(List<TimedClaim> timeline, int max) {
+        return timeline.size() <= max ? timeline : timeline.subList(timeline.size() - max, timeline.size());
+    }
+
+    /** The claims of the timeline believed at {@code at} (endpoints as recorded now). */
     static List<TimedClaim> believedAt(List<TimedClaim> timeline, Instant at) {
+        return believedAt(timeline, at, null);
+    }
+
+    /**
+     * The claims of the timeline believed at {@code at} that involved {@code entityId} at that time
+     * (null: every claim), each with the endpoints it had then (before a merge re-pointed them).
+     */
+    static List<TimedClaim> believedAt(List<TimedClaim> timeline, Instant at, String entityId) {
+        return segments(timeline, entityId).stream()
+                .filter(g -> !g.start().isAfter(at) && (g.end() == null || at.isBefore(g.end())))
+                .map(Segment::claim).toList();
+    }
+
+    /** A stretch of record time in which a claim was believed with fixed endpoints. */
+    record Segment(TimedClaim claim, Instant start, Instant end) {
+    }
+
+    /**
+     * Splits each believed claim at its merge re-pointing instants and keeps the stretches in which
+     * it involved {@code entityId} (null: all, unsplit), with the endpoints of that stretch.
+     */
+    static List<Segment> segments(List<TimedClaim> timeline, String entityId) {
         Map<String, Instant> ends = ends(timeline);
-        return timeline.stream().filter(t -> {
+        List<Segment> out = new ArrayList<>();
+        for (TimedClaim t : timeline) {
             Instant end = ends.get(t.claim().id());
-            return startsBelief(t, end) && !t.recordedAt().isAfter(at) && (end == null || at.isBefore(end));
-        }).toList();
+            if (!startsBelief(t, end)) {
+                continue;
+            }
+            if (entityId == null) {
+                out.add(new Segment(t, t.recordedAt(), end));
+                continue;
+            }
+            TreeSet<Instant> cuts = new TreeSet<>();
+            cuts.add(t.recordedAt());
+            for (Instant cut : new Instant[] {t.subjectRepointedAt(), t.objectRepointedAt()}) {
+                if (cut != null && cut.isAfter(t.recordedAt()) && (end == null || cut.isBefore(end))) {
+                    cuts.add(cut);
+                }
+            }
+            List<Instant> points = new ArrayList<>(cuts);
+            for (int k = 0; k < points.size(); k++) {
+                Instant from = points.get(k);
+                Instant to = k + 1 < points.size() ? points.get(k + 1) : end;
+                String subject = t.subjectAt(from);
+                String object = t.objectAt(from);
+                if (!entityId.equals(subject) && !entityId.equals(object)) {
+                    continue;
+                }
+                ClaimView c = t.claim();
+                ClaimView view = Objects.equals(subject, c.subjectId()) && Objects.equals(object, c.objectId()) ? c
+                        : new ClaimView(c.id(), c.kind(), c.predicate(), subject, object, c.valueType(), c.value(),
+                                c.valueNorm(), c.polarity(), c.statement(), c.status(), c.confidence(), c.origin(),
+                                c.cardinality(), c.activeKey(), c.slotKey(), c.evidenceCount(), c.validFrom(),
+                                c.validTo(), c.createdByPrincipal(), c.createdByIngestionId(), c.statusReason());
+                out.add(new Segment(t.withClaim(view), from, to));
+            }
+        }
+        return out;
     }
 
     /**
      * When each claim stopped being believed (absent while ACTIVE): its {@code statusChangedAt}, or,
      * for a superseded claim, the {@code recordedAt} of the claim that superseded it, so that the
-     * replacement takes over at one instant.
+     * replacement takes over at one instant. The replacement's time is only used when it is later than
+     * the claim's own record time and than any merge re-pointing (a merge supersedes a duplicate by an
+     * older claim; that claim ends at the merge).
      */
     static Map<String, Instant> ends(List<TimedClaim> timeline) {
         Map<String, Instant> ends = new java.util.HashMap<>();
+        Map<String, Instant> replacedAt = new java.util.HashMap<>();
         for (TimedClaim t : timeline) {
-            switch (t.claim().status()) {
-                case "SUPERSEDED", "RETRACTED", "DISPUTED" -> ends.put(t.claim().id(), t.statusChangedAt());
-                default -> { }
+            for (String old : t.supersedes()) {
+                replacedAt.merge(old, t.recordedAt(), (a, b) -> a.isBefore(b) ? a : b);
             }
         }
         for (TimedClaim t : timeline) {
-            for (String old : t.supersedes()) {
-                if (ends.containsKey(old)) {
-                    ends.put(old, t.recordedAt());
+            switch (t.claim().status()) {
+                case "SUPERSEDED", "RETRACTED", "DISPUTED" -> {
+                    Instant end = t.statusChangedAt();
+                    Instant replaced = t.supersededAt() != null ? t.supersededAt() : replacedAt.get(t.claim().id());
+                    if (replaced != null && replaced.isAfter(t.recordedAt())
+                            && (t.subjectRepointedAt() == null || replaced.isAfter(t.subjectRepointedAt()))
+                            && (t.objectRepointedAt() == null || replaced.isAfter(t.objectRepointedAt()))) {
+                        end = replaced;
+                    }
+                    ends.put(t.claim().id(), end);
                 }
+                default -> { }
             }
         }
         return ends;
@@ -266,15 +348,10 @@ public class NodeViewService {
     /** Replays belief start/end events in record time and diffs the state after each instant. */
     private static List<PendingChange> replay(List<TimedClaim> timeline, String entityId) {
         List<Event> events = new ArrayList<>();
-        Map<String, Instant> ends = ends(timeline);
-        for (TimedClaim t : timeline) {
-            Instant end = ends.get(t.claim().id());
-            if (!startsBelief(t, end)) {
-                continue;
-            }
-            events.add(new Event(t.recordedAt(), t, true));
-            if (end != null) {
-                events.add(new Event(end, t, false));
+        for (Segment g : segments(timeline, entityId)) {
+            events.add(new Event(g.start(), g.claim(), true));
+            if (g.end() != null) {
+                events.add(new Event(g.end(), g.claim(), false));
             }
         }
         events.sort(Comparator.comparing(Event::at));

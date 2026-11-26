@@ -32,6 +32,8 @@ public final class SchemaStatements {
             "CREATE INDEX entity_brain_updated IF NOT EXISTS FOR (n:Entity) ON (n.brainId, n.updatedAt)",
             "CREATE INDEX claim_brain_subject IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.subjectId, c.status)",
             "CREATE INDEX claim_brain_object IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.objectId, c.status)",
+            "CREATE INDEX claim_brain_orig_subject IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.originalSubjectId)",
+            "CREATE INDEX claim_brain_orig_object IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.originalObjectId)",
             "CREATE INDEX claim_brain_predicate IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.predicate, c.status)",
             "CREATE INDEX ingestion_brain_hash IF NOT EXISTS FOR (i:Ingestion) ON (i.brainId, i.contentHash)",
             "CREATE INDEX ingestion_brain_time IF NOT EXISTS FOR (i:Ingestion) ON (i.brainId, i.receivedAt)",

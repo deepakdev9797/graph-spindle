@@ -134,7 +134,9 @@ class GraphFixesIT extends AbstractGraphIT {
                                 ref("r", "Recipe", "Pancakes")))), v, null, true, null));
         String claimId = r.outcomes(Outcome.CLAIM_CREATED).get(0).claimId();
 
-        assertThatThrownBy(() -> brains.update("fx-v", null, new BrainUpdate(null, null, BrainConfig.defaults())))
+        // an explicit core vocabulary removes the custom one (an absent vocabulary keeps it, ADR-029)
+        assertThatThrownBy(() -> brains.update("fx-v", null, new BrainUpdate(null, null,
+                BrainConfig.defaults().withVocabulary(VocabularyConfig.core()))))
                 .isInstanceOf(GraphSpindleException.class)
                 .satisfies(e -> {
                     assertThat(((GraphSpindleException) e).code()).isEqualTo(ErrorCode.CONFLICT_STATE);

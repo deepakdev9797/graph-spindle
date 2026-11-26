@@ -9,6 +9,8 @@ import io.graphspindle.graph.BrainStore;
 import io.graphspindle.vocabulary.AttributePredicateDef;
 import io.graphspindle.vocabulary.BrainVocabulary;
 import io.graphspindle.vocabulary.Cardinality;
+import io.graphspindle.vocabulary.EntityTypeDef;
+import io.graphspindle.vocabulary.RelationPredicateDef;
 import io.graphspindle.vocabulary.InvalidVocabularyConfigException;
 import io.graphspindle.vocabulary.VocabularyConfig;
 import io.graphspindle.vocabulary.VocabularyRegistry;
@@ -61,6 +63,7 @@ public class BrainService {
         BrainConfig config = validated(request.config() == null ? BrainConfig.defaults() : request.config());
         if (changesVocabulary(VocabularyConfig.core(), config.vocabulary())) {
             requireVocabularyMutable();
+            VocabularyGuardrails.checkNewNamesNotSimilar(vocabularies, VocabularyConfig.core(), config.vocabulary());
         }
         BrainRecord r = store.create(scope, name, description, serialize(config), owner == null ? "Me" : owner);
         return toBrain(r);
@@ -90,8 +93,10 @@ public class BrainService {
         if (update.config() == null) {
             return toBrain(store.update(scope, expectedVersion, name, description != null, description, null));
         }
-        BrainConfig config = validated(update.config());
         return writeConfig(scope, expectedVersion, current -> {
+            // a config without "vocabulary" keeps the brain's current vocabulary (QA F7)
+            BrainConfig config = validated(update.config().vocabularyOmitted()
+                    ? update.config().withVocabulary(current.config().vocabulary()) : update.config());
             if (changesVocabulary(current.config().vocabulary(), config.vocabulary())) {
                 requireVocabularyMutable();
             }
@@ -114,10 +119,17 @@ public class BrainService {
             Brain current = toBrain(store.find(scope).orElseThrow(() -> GraphSpindleException.brainNotFound(
                     scope.brainId())));
             BrainConfig next = change.apply(current);
-            checkRemovalsNotInUse(scope, current.config().vocabulary(), next.vocabulary());
+            VocabularyConfig before = current.config().vocabulary();
+            if (changesVocabulary(before, next.vocabulary())) {
+                VocabularyGuardrails.checkNewNamesNotSimilar(vocabularies, before, next.vocabulary());
+            }
+            BrainStore.UsageQuery usage = removalsToCheck(before, next.vocabulary());
             long version = expectedVersion != null ? expectedVersion : current.configVersion();
             try {
-                return toBrain(store.update(scope, version, name, description != null, description, serialize(next)));
+                return toBrain(usage.isEmpty()
+                        ? store.update(scope, version, name, description != null, description, serialize(next))
+                        : store.update(scope, version, name, description != null, description, serialize(next),
+                                usage, BrainService::rejectInUse));
             } catch (GraphSpindleException e) {
                 if (expectedVersion != null || e.code() != ErrorCode.PRECONDITION_FAILED
                         || attempt >= MAX_CONFIG_ATTEMPTS) {
@@ -129,10 +141,12 @@ public class BrainService {
 
     /**
      * SCHEMA §11: a custom entity type, relation predicate or attribute predicate cannot be removed
-     * while ACTIVE entities or ACTIVE/DISPUTED claims use it ({@code CONFLICT_STATE}, 409). Disabling
-     * core types and predicates stays allowed (their data becomes read-only for ingestion).
+     * while ACTIVE entities or ACTIVE/DISPUTED claims use it ({@code CONFLICT_STATE}, 409), and no
+     * relation predicate (core or custom, also through {@code predicateOverrides}) can be narrowed
+     * while in use. Disabling core types and predicates stays allowed (their data becomes read-only
+     * for ingestion). The usage is counted in the config write's transaction ({@link BrainStore}).
      */
-    private void checkRemovalsNotInUse(BrainScope scope, VocabularyConfig before, VocabularyConfig after) {
+    private BrainStore.UsageQuery removalsToCheck(VocabularyConfig before, VocabularyConfig after) {
         BrainVocabulary old = resolve(before);
         BrainVocabulary now = resolve(after);
         java.util.Set<String> types = new java.util.TreeSet<>();
@@ -143,16 +157,10 @@ public class BrainService {
                 .forEach(p -> predicates.add(p.name()));
         old.attributePredicates().stream().filter(a -> !a.core() && !now.hasAttributeName(a.name()))
                 .forEach(a -> predicates.add(a.name()));
-        // custom relation predicates kept but narrowed (fewer source/target types, MANY -> ONE), ADR-025
-        Map<String, VocabularyConfig.CustomRelationPredicate> afterRelations = new java.util.HashMap<>();
-        after.customRelationPredicates().forEach(r -> afterRelations.put(r.name(), r));
-        for (VocabularyConfig.CustomRelationPredicate r : before.customRelationPredicates()) {
-            VocabularyConfig.CustomRelationPredicate n = afterRelations.get(r.name());
-            if (n != null && (!n.sourceTypes().containsAll(r.sourceTypes())
-                    || !n.targetTypes().containsAll(r.targetTypes())
-                    || (r.cardinality() != Cardinality.ONE && n.cardinality() == Cardinality.ONE))) {
-                predicates.add(r.name());
-            }
+        // relation predicates kept but narrowed: fewer source/target types that are still enabled, or
+        // MANY -> ONE, compared on the resolved definitions (QA F4)
+        for (RelationPredicateDef r : old.relationPredicates()) {
+            now.relation(r.name()).filter(n -> narrows(r, n, now)).ifPresent(n -> predicates.add(r.name()));
         }
         // properties removed from one type or narrowed (other value type, fewer enum values, shorter,
         // tighter range, MANY -> ONE) while that type stays enabled; disabling core ones stays allowed
@@ -168,16 +176,31 @@ public class BrainService {
                 }
             }
         }
-        if (types.isEmpty() && predicates.isEmpty() && pairs.isEmpty()) {
-            return;
+        return new BrainStore.UsageQuery(types, predicates, pairs);
+    }
+
+    /** Whether {@code next} accepts less than {@code old} for the types that are still enabled. */
+    private static boolean narrows(RelationPredicateDef old, RelationPredicateDef next, BrainVocabulary now) {
+        if (old.cardinality() != Cardinality.ONE && next.cardinality() == Cardinality.ONE) {
+            return true;
         }
-        Map<String, Long> inUse = new java.util.TreeMap<>(store.usage(scope, types, predicates));
-        inUse.putAll(store.attributeUsage(scope, pairs));
+        java.util.List<String> enabled = now.entityTypes().stream().map(EntityTypeDef::name).toList();
+        for (String source : enabled) {
+            for (String target : enabled) {
+                if (old.allows(source, target) && !next.allows(source, target)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void rejectInUse(Map<String, Long> inUse) {
         if (!inUse.isEmpty()) {
             throw new GraphSpindleException(ErrorCode.CONFLICT_STATE,
                     "vocabulary still in use by active entities or claims, cannot remove or narrow: "
                             + inUse.keySet(),
-                    Map.of("inUse", inUse), null);
+                    Map.of("inUse", new java.util.TreeMap<>(inUse)), null);
         }
     }
 
@@ -203,10 +226,8 @@ public class BrainService {
         }
         BrainVocabulary resolved = resolve(vocabulary);
         BrainScope scope = BrainScope.of(find(brainId).id());
-        Brain updated = writeConfig(scope, expectedVersion, current -> {
-            VocabularyGuardrails.checkNewNamesNotSimilar(vocabularies, current.config().vocabulary(), vocabulary);
-            return validated(current.config().withVocabulary(vocabulary));
-        }, null, null);
+        Brain updated = writeConfig(scope, expectedVersion,
+                current -> validated(current.config().withVocabulary(vocabulary)), null, null);
         return new BrainVocabularyView(updated, resolved);
     }
 

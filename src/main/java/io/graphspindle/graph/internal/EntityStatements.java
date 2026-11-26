@@ -42,7 +42,7 @@ public final class EntityStatements {
             SET l.status = 'MERGED', l.mergedIntoId = s.id, l.updatedAt = datetime()
             REMOVE l.ftScope
             MERGE (l)-[r:MERGED_INTO {brainId: $brainId}]->(s)
-            ON CREATE SET r.at = datetime(), r.by = $by
+            ON CREATE SET r.at = datetime.transaction(), r.by = $by
             RETURN l.id AS id
             """;
 

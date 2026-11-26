@@ -401,6 +401,9 @@ public final class VocabularyConfigValidator {
         } else if (description.codePointCount(0, description.length()) > MAX_DESCRIPTION) {
             issues.add(new VocabularyIssue(path, INVALID_VALUE,
                     "description must be at most " + MAX_DESCRIPTION + " characters"));
+        } else if (VocabularyDefinitionLoader.hasControlCharacters(description)) {
+            issues.add(new VocabularyIssue(path, INVALID_VALUE, "description must not contain control characters "
+                    + "(line breaks, tabs ...): it is rendered into the model prompt"));
         }
     }
 

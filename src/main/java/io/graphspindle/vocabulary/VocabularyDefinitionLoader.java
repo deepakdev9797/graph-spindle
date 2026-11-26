@@ -350,7 +350,17 @@ public final class VocabularyDefinitionLoader {
             problems.add(path + ".description: is required");
         } else if (description.codePointCount(0, description.length()) > VocabularyConfigValidator.MAX_DESCRIPTION) {
             problems.add(path + ".description: at most " + VocabularyConfigValidator.MAX_DESCRIPTION + " characters");
+        } else if (hasControlCharacters(description)) {
+            problems.add(path + ".description: must not contain control characters (line breaks, tabs ...)");
         }
+    }
+
+    /**
+     * Whether the text, without surrounding white space, contains an ISO control character. Line
+     * breaks inside a description would let it forge new lines of the rendered vocabulary prompt (QA F8).
+     */
+    static boolean hasControlCharacters(String text) {
+        return text != null && text.strip().chars().anyMatch(Character::isISOControl);
     }
 
     static void texts(String path, List<String> values, int maxCount, int maxLength, List<String> problems) {

@@ -52,7 +52,9 @@ public final class KnowledgeStatements {
             MATCH (s:Entity {brainId: $brainId, id: $toId})
             DELETE r
             CREATE (c)-[:SUBJECT {brainId: $brainId}]->(s)
-            SET c.subjectId = s.id
+            SET c.originalSubjectId = coalesce(c.originalSubjectId, c.subjectId),
+                c.subjectRepointedAt = coalesce(c.subjectRepointedAt, datetime.transaction()),
+                c.subjectId = s.id
             RETURN c
             """;
 
@@ -61,7 +63,9 @@ public final class KnowledgeStatements {
             MATCH (o:Entity {brainId: $brainId, id: $toId})
             DELETE r
             CREATE (c)-[:OBJECT {brainId: $brainId}]->(o)
-            SET c.objectId = o.id
+            SET c.originalObjectId = coalesce(c.originalObjectId, c.objectId),
+                c.objectRepointedAt = coalesce(c.objectRepointedAt, datetime.transaction()),
+                c.objectId = o.id
             RETURN c
             """;
 
