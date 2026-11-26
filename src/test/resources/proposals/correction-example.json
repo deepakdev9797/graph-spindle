@@ -1,0 +1,11 @@
+{"operations":[
+  {"op":"create_entity","ref":"s1","type":"Standard","name":"MIT License","aliases":["MIT"]},
+  {"op":"assert_claim","subject":{"ref":"s1"},"predicate":"category","value":"LICENSE","statement":"MIT is a license.","evidence":"the MIT license","confidence":0.9},
+  {"op":"create_entity","ref":"d2","type":"Decision","name":"Use MIT License for GraphSpindle"},
+  {"op":"assert_claim","subject":{"id":"P0"},"predicate":"DECIDED","object":{"ref":"d2"},"statement":"The speaker decided to switch to MIT.","evidence":"we're switching GraphSpindle from Apache 2.0 to the MIT license","confidence":0.9},
+  {"op":"assert_claim","subject":{"ref":"d2"},"predicate":"CHOOSES","object":{"ref":"s1"},"statement":"The decision chooses MIT.","evidence":"to the MIT license","confidence":0.9},
+  {"op":"assert_claim","subject":{"ref":"d2"},"predicate":"APPLIES_TO","object":{"id":"e1"},"statement":"Applies to GraphSpindle.","evidence":"switching GraphSpindle","confidence":0.9},
+  {"op":"assert_claim","subject":{"ref":"d2"},"predicate":"REPLACES","object":{"id":"e6"},"statement":"The MIT decision replaces the Apache 2.0 decision.","evidence":"Change of plan","confidence":0.9},
+  {"op":"supersede_claim","claimId":"c13","explicitCorrection":true,"reason":"License changed from Apache 2.0 to MIT",
+   "replacement":{"subject":{"id":"e1"},"predicate":"LICENSED_UNDER","object":{"ref":"s1"},"statement":"GraphSpindle is licensed under MIT.","evidence":"switching GraphSpindle from Apache 2.0 to the MIT license","confidence":0.9}}
+]}

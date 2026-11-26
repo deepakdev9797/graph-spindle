@@ -1,0 +1,11 @@
+{"operations":[
+  {"op":"create_entity","ref":"m1","type":"Standard","name":"Model Context Protocol","aliases":["MCP"]},
+  {"op":"create_entity","ref":"a1","type":"Person","name":"Alice Chen"},
+  {"op":"create_entity","ref":"o1","type":"Organization","name":"Acme"},
+  {"op":"assert_claim","subject":{"id":"e1"},"predicate":"IMPLEMENTS","object":{"ref":"m1"},"statement":"GraphSpindle exposes an MCP server.","evidence":"GraphSpindle now exposes an MCP server","confidence":0.9},
+  {"op":"assert_claim","subject":{"ref":"a1"},"predicate":"MEMBER_OF","object":{"ref":"o1"},"statement":"Alice Chen is from Acme.","evidence":"Alice Chen from Acme","confidence":0.85},
+  {"op":"assert_claim","subject":{"ref":"a1"},"predicate":"WORKS_ON","object":{"id":"e1"},"statement":"Alice Chen helps with GraphSpindle's Neo4j store.","evidence":"Alice Chen from Acme is helping me with the Neo4j store","confidence":0.8},
+  {"op":"assert_claim","subject":{"ref":"a1"},"predicate":"KNOWS","object":{"id":"P0"},"statement":"Alice Chen works with the speaker.","evidence":"is helping me","confidence":0.7},
+  {"op":"assert_claim","subject":{"id":"e1"},"predicate":"USES","object":{"id":"e3"},"statement":"GraphSpindle uses Neo4j.","evidence":"the Neo4j store","confidence":0.8},
+  {"op":"link_source","source":0,"target":{"id":"e1"}}
+]}
