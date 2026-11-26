@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: graph-spindle
+server:
+  # Local-only by default; expose deliberately and only with authentication enabled.
+  address: ${GRAPHSPINDLE_BIND_ADDRESS:127.0.0.1}
+  port: ${GRAPHSPINDLE_PORT:8080}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
