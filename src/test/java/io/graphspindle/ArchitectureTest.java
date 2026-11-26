@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test;
 /** Module boundary rules (ARCHITECTURE §2, IMPLEMENTATION_PLAN M1). */
 class ArchitectureTest {
 
-    private static final String OPS = "io.graphspindle.ingestion.ops";
-    private static final String VALIDATION = "io.graphspindle.ingestion.validation";
+    private static final String[] MODULES = {"common", "brain", "graph", "vocabulary", "resolution", "ingestion",
+        "knowledge", "conflict", "retrieval", "llm", "security", "api", "admin"};
 
     static JavaClasses classes;
 
@@ -68,8 +68,7 @@ class ArchitectureTest {
 
     @Test
     void internalPackagesAreModulePrivate() {
-        for (String module : new String[] {"brain", "graph", "vocabulary", "resolution", "ingestion", "knowledge",
-                "conflict", "retrieval", "llm", "security", "admin"}) {
+        for (String module : MODULES) {
             noClasses().that().resideOutsideOfPackage("io.graphspindle." + module + "..")
                     .should().dependOnClassesThat().resideInAPackage("io.graphspindle." + module + ".internal..")
                     .allowEmptyShould(true)
@@ -79,15 +78,19 @@ class ArchitectureTest {
 
     @Test
     void noPackageCycles() {
-        // ingestion.ops <-> ingestion.validation is an accepted cycle inside the ingestion module (ADR-017 §13)
-        slices().matching("io.graphspindle.(**)")
-                .should().beFreeOfCycles()
-                .ignoreDependency(inPackage(OPS), inPackage(VALIDATION))
-                .ignoreDependency(inPackage(VALIDATION), inPackage(OPS))
+        // cycles between modules are forbidden; cycles between packages of one module (e.g. graph <-> graph.internal,
+        // ingestion.ops <-> ingestion.validation, ADR-017 §13) are accepted (ADR-020)
+        var rule = slices().matching("io.graphspindle.(**)").should().beFreeOfCycles();
+        for (String module : MODULES) {
+            rule = rule.ignoreDependency(inModule(module), inModule(module));
+        }
+        rule
                 .check(classes);
     }
 
-    private static DescribedPredicate<JavaClass> inPackage(String pkg) {
-        return DescribedPredicate.describe(pkg, c -> c.getPackageName().equals(pkg));
+    private static DescribedPredicate<JavaClass> inModule(String module) {
+        String pkg = "io.graphspindle." + module;
+        return DescribedPredicate.describe(module,
+                c -> c.getPackageName().equals(pkg) || c.getPackageName().startsWith(pkg + "."));
     }
 }
