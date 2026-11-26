@@ -205,3 +205,14 @@ Gaps and inconsistencies in SCHEMA/ARCHITECTURE resolved while implementing M3:
 14. **Lenient parsing:** op names are trimmed and case-insensitive; numeric/boolean `value`s become strings; numeric-string `confidence`, string `"true"/"false"` for `explicitCorrection` and case-insensitive `polarity` are accepted; a claim body may repeat `"op":"assert_claim"`. The first fenced code block is tried first, then up to 8 `{` positions in the raw text.
 15. **Summary** is truncated to 1000 code points and secrets in it are redacted (adjustment `SUMMARY_ADJUSTED`).
 16. **Deferred:** `GET/PUT /brains/{id}/vocabulary` and `VocabularyApiIT` need `BrainService`/`BrainConfig` (M2) and are not part of this commit. `VocabularyRegistry.forBrain` currently takes a `VocabularyConfig`; the brain-id lookup is added with M2. No Spring beans are registered for the M3 classes yet (all have no-arg constructors).
+
+## ADR-018: Plain Neo4j Java driver instead of Spring Data Neo4j's `Neo4jClient`
+**Status:** Accepted (2026-11-26, M1). Supersedes the data-access part of ADR-001 and ADR-015.
+
+**Context:** the integration spike (INTEGRATION_NOTES §1a) showed that Boot 4.2 ships `spring-boot-starter-neo4j` (driver 6.3.0, `Driver` auto-configuration and health indicator) separately from `spring-boot-starter-data-neo4j`. `Neo4jClient` and the SDN transaction manager exist only in the latter.
+
+**Decision**
+- Depend on `spring-boot-starter-neo4j` only. All Cypher is hand-written, parameterized and lives in `io.graphspindle.graph`; transactions are driver-managed (`session.executeWrite/executeRead`), not `@Transactional`.
+- ArchUnit (1.5.1, latest on Maven Central) enforces the module rules instead of Spring Modulith: no `org.neo4j..` dependency outside `graph`, `api` does not touch `graph`/`llm`, `llm` and `graph` are independent, `internal` packages are module-private, and there are no package cycles except the accepted `ingestion.ops` <-> `ingestion.validation` cycle (ADR-017 §13).
+
+**Consequences:** ARCHITECTURE §12 "`@Transactional` with the SDN transaction manager" becomes "one driver-managed transaction per store facade call". Unit tests without Neo4j set `management.health.neo4j.enabled=false` (INTEGRATION_NOTES pitfall 3).

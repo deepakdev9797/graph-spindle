@@ -1,6 +1,14 @@
 spring:
   application:
     name: graph-spindle
+  neo4j:
+    uri: ${GRAPHSPINDLE_NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${GRAPHSPINDLE_NEO4J_USERNAME:neo4j}
+      password: ${GRAPHSPINDLE_NEO4J_PASSWORD:}      # empty password -> AuthTokens.none()
+  mvc:
+    problemdetails:
+      enabled: true
 server:
   # Local-only by default; expose deliberately and only with authentication enabled.
   address: ${GRAPHSPINDLE_BIND_ADDRESS:127.0.0.1}
