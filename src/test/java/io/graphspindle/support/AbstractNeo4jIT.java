@@ -6,6 +6,9 @@ import org.neo4j.configuration.connectors.BoltConnector;
 import org.neo4j.fleetmanagement.FleetManagementSettings;
 import org.neo4j.harness.Neo4j;
 import org.neo4j.harness.Neo4jBuilders;
+import org.junit.jupiter.api.BeforeEach;
+import org.neo4j.driver.Driver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -34,6 +37,39 @@ public abstract class AbstractNeo4jIT {
 
     @LocalServerPort
     protected int port;
+
+    @Autowired
+    protected Driver driver;
+
+    @BeforeEach
+    void cleanDatabase() {
+        try (var session = driver.session()) {
+            session.run("MATCH (n) DETACH DELETE n").consume();
+        }
+    }
+
+    /** Runs a read query directly (test assertions only) and returns the rows as maps. */
+    protected java.util.List<java.util.Map<String, Object>> query(String cypher, java.util.Map<String, Object> params) {
+        try (var session = driver.session()) {
+            return session.executeRead(tx -> tx.run(cypher, params).list(r -> r.asMap()));
+        }
+    }
+
+    protected long count(String cypher, java.util.Map<String, Object> params) {
+        try (var session = driver.session()) {
+            return session.executeRead(tx -> tx.run(cypher, params).single().get(0).asLong());
+        }
+    }
+
+    protected void write(String cypher, java.util.Map<String, Object> params) {
+        try (var session = driver.session()) {
+            session.executeWrite(tx -> tx.run(cypher, params).consume());
+        }
+    }
+
+    protected ApiClient api() {
+        return new ApiClient(baseUrl());
+    }
 
     @DynamicPropertySource
     static void neo4jProperties(DynamicPropertyRegistry registry) {

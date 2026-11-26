@@ -8,9 +8,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.web.client.RestClient;
 
-/** Context loads without a running Neo4j (the driver is lazy); the Neo4j health contributor is off here. */
+/** Context loads without a running Neo4j (the driver is lazy); the Neo4j health contributor and schema initialization are off here. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "management.health.neo4j.enabled=false")
+        properties = {"management.health.neo4j.enabled=false", "graphspindle.graph.initialize-schema=false"})
 class GraphSpindleApplicationTests {
 
     @LocalServerPort
