@@ -57,7 +57,7 @@ spring:
       max-retries: 0
       timeout: ${GRAPHSPINDLE_LLM_HTTP_READ_TIMEOUT:95s}
       chat:
-        model: ${GRAPHSPINDLE_ANTHROPIC_MODEL:claude-sonnet-4-5}
+        model: ${GRAPHSPINDLE_ANTHROPIC_MODEL:claude-sonnet-5-5}
         temperature: 0.0
         max-tokens: ${GRAPHSPINDLE_LLM_MAX_OUTPUT_TOKENS:4096}
   mvc:
