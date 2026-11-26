@@ -17,6 +17,16 @@ public record Adjustment(int opIndex, String op, Kind kind, String message) {
         /** A description on a create that became a reference was not applied. */
         DESCRIPTION_IGNORED,
         /** Summary truncated or redacted. */
-        SUMMARY_ADJUSTED
+        SUMMARY_ADJUSTED,
+        /** A create_entity carried an attribute-named field (e.g. category); the field was dropped (ADR-028). */
+        ATTRIBUTE_FIELD_DROPPED,
+        /**
+         * A supersede_claim without correction language in the input became a flagged contradiction
+         * (DISPUTED claim + CONTRADICTION conflict): the engine, not the model, decides what is an explicit
+         * correction (ADR-028).
+         */
+        CORRECTION_DOWNGRADED,
+        /** The named speaker did not exist in the brain; the engine creates it (handle P0) with this plan. */
+        SPEAKER_CREATED
     }
 }

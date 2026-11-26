@@ -3,6 +3,7 @@ package io.graphspindle.ingestion.ops;
 import io.graphspindle.common.Limits;
 import io.graphspindle.common.Polarity;
 import io.graphspindle.common.Untrusted;
+import io.graphspindle.ingestion.validation.Adjustment;
 import io.graphspindle.ingestion.validation.RejectionCode;
 import io.graphspindle.ingestion.validation.ValidationIssue;
 import java.math.BigDecimal;
@@ -88,6 +89,18 @@ public final class ProposalParser {
      * @throws MalformedModelOutputException if no usable proposal object can be read
      */
     public ParsedProposal parse(String raw) {
+        return parse(raw, Set.of());
+    }
+
+    /**
+     * Like {@link #parse(String)}, but a {@code create_entity} property named after one of
+     * {@code attributeNames} (a vocabulary attribute predicate such as {@code category}) is dropped
+     * with an {@code ATTRIBUTE_FIELD_DROPPED} adjustment instead of rejecting the whole operation
+     * (ADR-028). It is still recorded in {@code unknownFields}. Other unknown fields stay rejections.
+     *
+     * @throws MalformedModelOutputException if no usable proposal object can be read
+     */
+    public ParsedProposal parse(String raw, Set<String> attributeNames) {
         if (raw == null || raw.isBlank()) {
             throw new MalformedModelOutputException("model output is empty");
         }
@@ -96,22 +109,23 @@ public final class ProposalParser {
                     + " characters");
         }
         JsonNode root = locateEnvelope(raw);
-        return map(root);
+        return map(root, attributeNames == null ? Set.of() : attributeNames);
     }
 
     // ---------------------------------------------------------------- locating the JSON object
 
     private JsonNode locateEnvelope(String raw) {
+        String[] firstError = new String[1];
         String fenced = fencedBlock(raw);
         if (fenced != null) {
-            JsonNode node = tryFrom(fenced, fenced.indexOf('{'));
+            JsonNode node = tryFrom(fenced, fenced.indexOf('{'), firstError);
             if (isEnvelope(node)) {
                 return node;
             }
         }
         int from = raw.indexOf('{');
         for (int attempt = 0; from >= 0 && attempt < MAX_START_ATTEMPTS; attempt++) {
-            JsonNode node = tryFrom(raw, from);
+            JsonNode node = tryFrom(raw, from, firstError);
             if (isEnvelope(node)) {
                 return node;
             }
@@ -120,7 +134,12 @@ public final class ProposalParser {
             int end = objectEnd(raw, from);
             from = raw.indexOf('{', end < 0 ? from + 1 : end + 1);
         }
-        throw new MalformedModelOutputException("no JSON object with an operations array found");
+        if (raw.indexOf('{') < 0) {
+            throw new MalformedModelOutputException("no JSON object with an operations array found: the output"
+                    + " contains no '{'");
+        }
+        throw new MalformedModelOutputException("no JSON object with an operations array found"
+                + (firstError[0] == null ? "" : "; first JSON error " + firstError[0]));
     }
 
     /**
@@ -163,7 +182,7 @@ public final class ProposalParser {
         return close < 0 ? raw.substring(lineEnd + 1) : raw.substring(lineEnd + 1, close);
     }
 
-    private JsonNode tryFrom(String text, int start) {
+    private JsonNode tryFrom(String text, int start, String[] firstError) {
         if (start < 0) {
             return null;
         }
@@ -171,8 +190,39 @@ public final class ProposalParser {
             // reads exactly one JSON value; trailing prose is ignored
             return mapper.readTree(parser);
         } catch (JacksonException e) {
+            if (firstError[0] == null) {
+                firstError[0] = describe(text, start, e);
+            }
             return null;
         }
+    }
+
+    /**
+     * Where a JSON read failed: line and column in {@code text} (1-based), Jackson's message and the
+     * text just before the fault, so the repair prompt can point at it (ADR-028). The excerpt is short
+     * and only ever goes back to the model that produced it.
+     */
+    static String describe(String text, int start, JacksonException e) {
+        var loc = e.getLocation();
+        String msg = Untrusted.preview(e.getOriginalMessage() == null ? e.getClass().getSimpleName()
+                : e.getOriginalMessage());
+        if (loc == null || loc.getCharOffset() < 0) {
+            return "(" + msg + ")";
+        }
+        int at = (int) Math.min(start + loc.getCharOffset(), text.length());
+        int line = 1;
+        int col = 1;
+        for (int i = 0; i < at; i++) {
+            if (text.charAt(i) == '\n') {
+                line++;
+                col = 1;
+            } else {
+                col++;
+            }
+        }
+        String before = text.substring(Math.max(start, at - 40), at).replace('\n', ' ');
+        return "at line " + line + " column " + col + " (offset " + at + "): " + msg + "; text before the error: \""
+                + before + "\"";
     }
 
     private static boolean isEnvelope(JsonNode node) {
@@ -181,7 +231,7 @@ public final class ProposalParser {
 
     // ---------------------------------------------------------------- mapping
 
-    private ParsedProposal map(JsonNode root) {
+    private ParsedProposal map(JsonNode root, Set<String> attributeNames) {
         List<String> unknownFields = new ArrayList<>();
         for (String name : root.propertyNames()) {
             if (!ENVELOPE_FIELDS.contains(name)) {
@@ -205,6 +255,8 @@ public final class ProposalParser {
         List<MutationOperation> ops = new ArrayList<>();
         List<Integer> indexes = new ArrayList<>();
         List<ValidationIssue> rejected = new ArrayList<>();
+        List<Adjustment> adjustments = new ArrayList<>();
+        Map<String, Integer> droppedRefs = new java.util.LinkedHashMap<>();
         for (int i = 0; i < opsNode.size(); i++) {
             JsonNode node = opsNode.get(i);
             String opName = null;
@@ -223,21 +275,48 @@ public final class ProposalParser {
                 }
                 opName = candidate;
                 Op reader = new Op(node, "operations[" + i + "]", unknownFields);
-                reader.checkFields(OP_FIELDS.get(opName));
+                List<String> dropped = CreateEntity.OP.equals(opName)
+                        ? reader.checkFields(OP_FIELDS.get(opName), attributeNames)
+                        : reader.checkFields(OP_FIELDS.get(opName), Set.of());
                 ops.add(reader.read(opName));
                 indexes.add(i);
+                for (String d : dropped) {
+                    adjustments.add(new Adjustment(i, opName, Adjustment.Kind.ATTRIBUTE_FIELD_DROPPED, "attribute field '"
+                            + d + "' is not a create_entity field and was dropped; state it as an assert_claim"));
+                }
             } catch (FieldError e) {
                 rejected.add(new ValidationIssue(i, opName, e.code, e.getMessage()));
+                if (CreateEntity.OP.equals(opName) && node.get("ref") != null && node.get("ref").isString()) {
+                    droppedRefs.putIfAbsent(node.get("ref").stringValue(), i);
+                }
             }
         }
-        return new ParsedProposal(new Proposal(summary, ops), indexes, rejected, unknownFields);
+        return new ParsedProposal(new Proposal(summary, ops), indexes, rejected, unknownFields, adjustments,
+                droppedRefs);
     }
 
     /** Reads one operation object; throws {@link FieldError} on structural problems. */
     private record Op(JsonNode node, String path, List<String> unknownFields) {
 
-        void checkFields(Set<String> allowed) {
-            checkFields(node, path, allowed);
+        /** Checks the operation's fields; returns the tolerated ones (in {@code tolerated}) that were dropped. */
+        List<String> checkFields(Set<String> allowed, Set<String> tolerated) {
+            List<String> dropped = new ArrayList<>();
+            List<String> unknown = new ArrayList<>();
+            for (String name : node.propertyNames()) {
+                if (allowed.contains(name)) {
+                    continue;
+                }
+                unknownFields.add(path + "." + Untrusted.preview(name));
+                if (tolerated.contains(name)) {
+                    dropped.add(name);
+                } else {
+                    unknown.add(Untrusted.preview(name));
+                }
+            }
+            if (!unknown.isEmpty()) {
+                throw new FieldError(RejectionCode.UNKNOWN_FIELD, "unknown field(s) " + unknown + " at " + path);
+            }
+            return dropped;
         }
 
         void checkFields(JsonNode n, String p, Set<String> allowed) {

@@ -83,6 +83,13 @@ public final class OperationValidator {
 
     private static final Pattern REF = Pattern.compile("^[a-z][a-z0-9_]{0,15}$");
 
+    /** Handle of the speaker (the self entity unless the request names another speaker). */
+    public static final String SPEAKER_HANDLE = "P0";
+    /** Local ref of a speaker entity the engine creates when the named speaker does not exist yet. */
+    public static final String SPEAKER_REF = "speaker_p0";
+    /** Decision predicates that are history: a change is a new Decision that REPLACES the old one. */
+    static final Set<String> IMMUTABLE_DECISION_PREDICATES = Set.of("CHOOSES", "REJECTS");
+
     /** {@code normalizedName} of the brain's self entity (SCHEMA §7.6). */
     static final String SELF_NORMALIZED_NAME = "@self";
     /** First-person words by which evidence mentions the self entity. */
@@ -154,6 +161,7 @@ public final class OperationValidator {
 
         ValidatedPlan execute() {
             rejected.addAll(parsed.rejected());
+            droppedRefs.putAll(parsed.droppedRefs());
             List<MutationOperation> ops = parsed.proposal().operations();
             for (int i = 0; i < ops.size(); i++) {
                 MutationOperation operation = ops.get(i);
@@ -165,6 +173,8 @@ public final class OperationValidator {
                         throw new Reject(LIMIT_EXCEEDED, "more than " + ctx.limits().maxOperations() + " operations");
                     }
                     apply(operation);
+                    final int accepted = index;
+                    parsed.adjustments().stream().filter(a -> a.opIndex() == accepted).forEach(adjusted::add);
                     adjusted.addAll(pending);
                 } catch (Reject r) {
                     rejected.add(new ValidationIssue(index, op, r.code, r.getMessage()));
@@ -419,6 +429,12 @@ public final class OperationValidator {
                 throw new Reject(NOT_SLOT_CONFLICT,
                         "replacement must have the same subject and predicate as claim " + s.claimHandle());
             }
+            if (IMMUTABLE_DECISION_PREDICATES.contains(existing.predicate()) && candidates.byEntityId(
+                    existing.subjectEntityId()).map(e -> "Decision".equals(e.type())).orElse(false)) {
+                throw new Reject(RejectionCode.DECISION_IMMUTABLE, "claim " + s.claimHandle() + " is a "
+                        + existing.predicate() + " of a Decision; decisions are not rewritten: create a new Decision"
+                        + " that REPLACES the old one");
+            }
             if (existing.origin() == Origin.MANUAL) {
                 commands.add(new ProtectedOverrideCommand(index, op, null, existing.claimId(), replacement,
                         "supersede_claim on a MANUAL claim: " + s.reason().strip()));
@@ -653,6 +669,9 @@ public final class OperationValidator {
         /** Words by which the evidence may mention an entity: names and aliases (ADR-021). */
         private List<String> terms(ResolvedEntity e) {
             List<String> out = new ArrayList<>(planTerms.getOrDefault(key(e), Set.of()));
+            if (e instanceof ResolvedEntity.New n && SPEAKER_REF.equals(n.ref())) {
+                out.addAll(FIRST_PERSON);
+            }
             if (e instanceof ResolvedEntity.Existing x) {
                 out.addAll(existingTerms(x.entityId()));
             }
@@ -662,7 +681,8 @@ public final class OperationValidator {
         private List<String> existingTerms(String entityId) {
             return candidates.byEntityId(entityId).map(c -> {
                 List<String> out = new ArrayList<>();
-                if (SELF_NORMALIZED_NAME.equals(c.normalizedName())) {
+                // first-person words name the self entity, and whoever the speaker P0 is (ADR-028)
+                if (SELF_NORMALIZED_NAME.equals(c.normalizedName()) || SPEAKER_HANDLE.equals(c.handle())) {
                     out.addAll(FIRST_PERSON);
                 }
                 if (c.name() != null) {

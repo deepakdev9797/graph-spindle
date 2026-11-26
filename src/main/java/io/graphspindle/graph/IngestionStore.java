@@ -64,4 +64,16 @@ public class IngestionStore {
         return tx.write(scope, t -> !t.run(IngestionStatements.MARK_FAILED, P.of("id", id, "report", report)).list()
                 .isEmpty());
     }
+
+    /** Stores the serialized result of a completed ingestion (APPLIED, NO_CHANGES or FAILED). */
+    public boolean storeResult(BrainScope scope, String id, String resultJson) {
+        return tx.write(scope, t -> !t.run(IngestionStatements.STORE_RESULT, P.of("id", id, "result", resultJson))
+                .list().isEmpty());
+    }
+
+    /** The newest APPLIED/NO_CHANGES ingestion with this content hash received within {@code hours}. */
+    public Optional<IngestionRecord> findRecentByContentHash(BrainScope scope, String contentHash, int hours) {
+        return tx.read(scope, t -> t.run(IngestionStatements.FIND_RECENT_BY_HASH, P.of("contentHash", contentHash,
+                "hours", (long) hours)).list().stream().findFirst().map(r -> Rows.ingestion(r.get("i"))));
+    }
 }

@@ -51,7 +51,7 @@ public final class Rows {
                 i.get("opsProposed").asInt(0), i.get("opsApplied").asInt(0), i.get("opsRejected").asInt(0),
                 i.get("report").asString(null), i.get("llmProvider").asString(null), i.get("llmModel").asString(null),
                 i.get("promptVersion").asString(null), instant(i.get("occurredAt")), instant(i.get("receivedAt")),
-                instant(i.get("completedAt")), i.get("rawContent").asString(null));
+                instant(i.get("completedAt")), i.get("rawContent").asString(null), i.get("result").asString(null));
     }
 
     public static SourceView source(Value s) {

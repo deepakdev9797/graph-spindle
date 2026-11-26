@@ -22,5 +22,7 @@ public enum RejectionCode {
     NAME_INVALID,
     PROTECTED_TARGET,
     NOT_SLOT_CONFLICT,
-    DEPENDENCY_REJECTED
+    DEPENDENCY_REJECTED,
+    /** supersede_claim on a Decision's CHOOSES/REJECTS claim: decisions are immutable records (ADR-028). */
+    DECISION_IMMUTABLE
 }

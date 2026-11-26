@@ -40,4 +40,19 @@ public final class IngestionStatements {
             SET i.status = 'FAILED', i.report = $report, i.completedAt = datetime()
             RETURN i
             """;
+
+    /** Stores the serialized result of a completed (non-RECEIVED) ingestion. */
+    public static final String STORE_RESULT = """
+            MATCH (i:Ingestion {brainId: $brainId, id: $id})
+            WHERE i.status <> 'RECEIVED'
+            SET i.result = $result
+            RETURN i.id AS id
+            """;
+
+    /** The newest ingestion with this content hash that changed (or confirmed) knowledge within the window. */
+    public static final String FIND_RECENT_BY_HASH = """
+            MATCH (i:Ingestion {brainId: $brainId, contentHash: $contentHash})
+            WHERE i.status IN ['APPLIED', 'NO_CHANGES'] AND i.receivedAt >= datetime() - duration({hours: $hours})
+            RETURN i ORDER BY i.receivedAt DESC LIMIT 1
+            """;
 }
