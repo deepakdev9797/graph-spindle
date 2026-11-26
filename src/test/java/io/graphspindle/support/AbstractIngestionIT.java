@@ -111,6 +111,65 @@ public abstract class AbstractIngestionIT extends AbstractNeo4jIT {
         return n;
     }
 
+    /**
+     * Scripts one end-to-end ingestion of {@code content}: an extraction with the given mentions
+     * ({@code "Name:Type"} each) and a reconcile answer with the given operations (a JSON array body;
+     * {@code @entity:}/{@code @claim:} references are resolved by the fake).
+     */
+    protected void script(String content, List<String> mentions, String operations) {
+        StringBuilder m = new StringBuilder();
+        for (int i = 0; i < mentions.size(); i++) {
+            String[] nt = mentions.get(i).split(":", 2);
+            if (i > 0) {
+                m.append(',');
+            }
+            m.append("{\"localRef\":\"m").append(i + 1).append("\",\"name\":").append(JSON.writeValueAsString(nt[0]))
+                    .append(",\"type\":").append(JSON.writeValueAsString(nt[1])).append(",\"evidence\":")
+                    .append(JSON.writeValueAsString(nt[0])).append('}');
+        }
+        String scenario = "s-" + io.graphspindle.common.Hashing.sha256Hex(content).substring(0, 12);
+        fake.script(scenario, content, "extract-v1", "{\"json\":{\"summary\":\"\",\"mentions\":[" + m
+                + "],\"statements\":[]}}");
+        fake.script(scenario, content, "reconcile-v1", "{\"json\":{\"summary\":\"\",\"operations\":" + operations
+                + "}}");
+    }
+
+    /** Ingests plain content (201 expected) and returns the result body. */
+    protected JsonNode ingestText(String brain, String content, String query) {
+        ApiClient.Response r = ingest(brain, Map.of("content", content), query);
+        org.assertj.core.api.Assertions.assertThat(r.status()).as(String.valueOf(r.body())).isEqualTo(201);
+        return r.body();
+    }
+
+    /** The ids of the OPEN conflicts of a brain with this kind. */
+    protected List<String> openConflicts(String brain, String kind) {
+        return query("MATCH (x:Conflict {brainId: $b, status: 'OPEN', kind: $k}) RETURN x.id AS id ORDER BY id",
+                Map.of("b", brain, "k", kind)).stream().map(r -> (String) r.get("id")).toList();
+    }
+
+    /** Status of the claims of a brain for a subject name and predicate, oldest first, as object=status. */
+    protected List<String> claimStates(String brain, String subject, String predicate) {
+        return query("""
+                MATCH (s:Entity {brainId: $b, name: $s})<-[:SUBJECT]-(c:Claim {brainId: $b, predicate: $p})
+                OPTIONAL MATCH (c)-[:OBJECT]->(o:Entity)
+                RETURN coalesce(o.name, c.value) AS o, c.polarity AS pol, c.status AS st ORDER BY c.recordedAt""",
+                Map.of("b", brain, "s", subject, "p", predicate)).stream()
+                .map(r -> r.get("o") + (r.get("pol").equals("NEGATIVE") ? "(neg)" : "") + "=" + r.get("st")).toList();
+    }
+
+    /** Names reached over the projection edge {@code predicate} from the named entity. */
+    protected List<String> projected(String brain, String subject, String predicate) {
+        return query("MATCH (:Entity {brainId: $b, name: $s})-[r]->(o:Entity) WHERE type(r) = $p RETURN o.name AS o"
+                + " ORDER BY o", Map.of("b", brain, "s", subject, "p", predicate)).stream()
+                .map(r -> (String) r.get("o")).toList();
+    }
+
+    /** Resolves a conflict over REST. */
+    protected ApiClient.Response resolve(String brain, String conflictId, String resolution) {
+        return api().post("/api/v1/brains/" + brain + "/conflicts/" + conflictId + "/resolve",
+                KnowledgeApi.json(Map.of("resolution", resolution)));
+    }
+
     /** Counts nodes of a brain by label. */
     protected long nodes(String brain, String label) {
         return count("MATCH (n:" + label + " {brainId: $b}) RETURN count(n)", Map.of("b", brain));

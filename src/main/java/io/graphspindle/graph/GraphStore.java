@@ -15,6 +15,7 @@ import io.graphspindle.graph.internal.AliasStore;
 import io.graphspindle.graph.internal.BrainLock;
 import io.graphspindle.graph.internal.ClaimStore;
 import io.graphspindle.graph.internal.ConflictStore;
+import io.graphspindle.graph.internal.ConsequenceRules;
 import io.graphspindle.graph.internal.EntityStore;
 import io.graphspindle.graph.internal.GraphTransactions;
 import io.graphspindle.graph.internal.IngestionStatements;
@@ -72,6 +73,7 @@ public class GraphStore {
     private final ProjectionStore projections;
     private final SourceRefStore sources;
     private final ConflictStore conflicts;
+    private final ConsequenceRules consequences;
 
     public GraphStore(GraphTransactions transactions, EntityStore entities, AliasStore aliases, ClaimStore claims,
             ProjectionStore projections, SourceRefStore sources, ConflictStore conflicts) {
@@ -82,6 +84,7 @@ public class GraphStore {
         this.projections = projections;
         this.sources = sources;
         this.conflicts = conflicts;
+        this.consequences = new ConsequenceRules(entities, claims, projections, conflicts);
     }
 
     public ApplyResult apply(BrainScope scope, ApplyRequest request) {
@@ -537,6 +540,15 @@ public class GraphStore {
             ResolvedClaim in = c.incoming();
             String subjectId = id(in.subject());
             String objectId = in.kind() == ClaimKind.RELATION ? id(in.object()) : null;
+            // LATEST_WINS (SCHEMA §9.4): a contradiction of the principal's own non-MANUAL claim supersedes it,
+            // also when the engine downgraded the model's correction to a flag (ADR-030)
+            if (req.policy() == ConflictPolicy.LATEST_WINS && existing.active()
+                    && !Origin.MANUAL.name().equals(existing.origin())
+                    && req.principal().equals(existing.createdByPrincipal())
+                    && existing.subjectId().equals(subjectId) && existing.predicate().equals(in.predicate())) {
+                supersedeWith(existing, in, "latest wins: contradiction from the same principal");
+                return;
+            }
             disputed(in, subjectId, objectId, existing, "CONTRADICTION", c.description());
         }
 
@@ -588,60 +600,9 @@ public class GraphStore {
 
         // ------------------------------------------------------------------ consequence rules
 
-        /**
-         * SCHEMA §10.3: an ACTIVE {@code REPLACES} claim between decisions makes the engine set the
-         * replaced decision's {@code status} to the engine-only value {@code SUPERSEDED} with a SYSTEM
-         * claim. A MANUAL status claim is never overridden (PROTECTED_OVERRIDE conflict instead).
-         */
+        /** SCHEMA §10.3 consequence rules over the claims this plan made ACTIVE ({@link ConsequenceRules}). */
         private void applyConsequences() {
-            Set<String> replaced = new LinkedHashSet<>();
-            for (ClaimView c : createdActive) {
-                if ("REPLACES".equals(c.predicate()) && c.relation() && "POSITIVE".equals(c.polarity())) {
-                    replaced.add(c.objectId());
-                }
-            }
-            for (String decisionId : replaced) {
-                EntityView decision = entities.findById(tx, decisionId).orElseThrow();
-                Optional<AttributePredicateDef> status = req.vocabulary().attribute("status", decision.type());
-                if (status.isEmpty() || !status.get().enumValues().contains("SUPERSEDED")) {
-                    continue;
-                }
-                String slot = ClaimKeys.slotKey(tx.brainId(), decisionId, "status", status.get().cardinality(),
-                        Polarity.POSITIVE).orElse(null);
-                Optional<ClaimView> current = slot == null ? Optional.empty() : claims.findBySlotKey(tx, slot);
-                if (current.isPresent() && "SUPERSEDED".equals(current.get().valueNorm())) {
-                    continue;
-                }
-                if (current.isPresent() && Origin.MANUAL.name().equals(current.get().origin())) {
-                    String conflictId = conflicts.create(tx, "PROTECTED_OVERRIDE",
-                            "a replacing decision would set the MANUAL status of this decision to SUPERSEDED",
-                            ingestionId);
-                    conflicts.involveClaim(tx, conflictId, current.get().id(), "EXISTING");
-                    outcome(Outcome.PROTECTED_OVERRIDE, decisionId, current.get().id(), conflictId);
-                    continue;
-                }
-                String statement = Normalizer.truncate("Decision \"" + decision.name()
-                        + "\" was superseded by a replacing decision.", 500);
-                Map<String, Object> props = P.of("id", Ids.newId(), "kind", "ATTRIBUTE", "predicate", "status",
-                        "subjectId", decisionId, "valueType", status.get().valueType().name(), "value", "SUPERSEDED",
-                        "valueNorm", "SUPERSEDED", "polarity", "POSITIVE", "statement", statement, "status", "ACTIVE",
-                        "confidence", 1.0, "origin", Origin.SYSTEM.name(), "cardinality",
-                        status.get().cardinality().name(), "createdByIngestionId", ingestionId,
-                        "createdByPrincipal", req.principal(), "evidenceCount", 0);
-                current.ifPresent(old -> {
-                    ClaimView s = claims.leaveActive(tx, old.id(), "SUPERSEDED", "replaced by another decision", null,
-                            ingestionId);
-                    projections.sync(tx, s);
-                    outcome(Outcome.CLAIM_SUPERSEDED, decisionId, old.id(), null);
-                });
-                props.put("activeKey", ClaimKeys.activeKey(tx.brainId(), decisionId, "status",
-                        ClaimKeys.attributeObject(status.get().valueType(), "SUPERSEDED"), Polarity.POSITIVE));
-                props.put("slotKey", slot);
-                ClaimView created = claims.create(tx, props);
-                projections.sync(tx, created);
-                current.ifPresent(old -> claims.supersedes(tx, created.id(), old.id(), "replaced by another decision"));
-                outcome(Outcome.CONSEQUENCE_APPLIED, decisionId, created.id(), null);
-            }
+            consequences.apply(tx, req.vocabulary(), createdActive, ingestionId, req.principal(), this::outcome);
         }
     }
 }

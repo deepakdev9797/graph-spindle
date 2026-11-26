@@ -61,6 +61,31 @@ public final class BrainVocabulary {
         return name != null && types.containsKey(name);
     }
 
+    /**
+     * The enabled type a free-form type word names: the type itself, its name in another case, or a
+     * type whose synonym it is (normalized like {@link NameSimilarity#normalize}). Used to read the
+     * extraction's mention types leniently (ADR-030); empty when nothing matches unambiguously.
+     */
+    public Optional<String> typeFor(String word) {
+        if (word == null || word.isBlank()) {
+            return Optional.empty();
+        }
+        if (isEnabledType(word)) {
+            return Optional.of(word);
+        }
+        String n = NameSimilarity.normalize(word);
+        java.util.Set<String> matches = new java.util.TreeSet<>();
+        for (EntityTypeDef t : entityTypes()) {
+            if (NameSimilarity.normalize(t.name()).equals(n)) {
+                return Optional.of(t.name());
+            }
+            if (t.synonyms().stream().anyMatch(s -> NameSimilarity.normalize(s).equals(n))) {
+                matches.add(t.name());
+            }
+        }
+        return matches.size() == 1 ? Optional.of(matches.iterator().next()) : Optional.empty();
+    }
+
     public List<RelationPredicateDef> relationPredicates() {
         return List.copyOf(relations.values());
     }

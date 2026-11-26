@@ -48,6 +48,7 @@ public class KnowledgeStore {
     private final ClaimStore claims;
     private final ProjectionStore projections;
     private final ConflictStore conflicts;
+    private final io.graphspindle.graph.internal.ConsequenceRules consequences;
 
     public KnowledgeStore(GraphTransactions transactions, EntityStore entities, AliasStore aliases, ClaimStore claims,
             ProjectionStore projections, ConflictStore conflicts) {
@@ -57,6 +58,8 @@ public class KnowledgeStore {
         this.claims = claims;
         this.projections = projections;
         this.conflicts = conflicts;
+        this.consequences = new io.graphspindle.graph.internal.ConsequenceRules(entities, claims, projections,
+                conflicts);
     }
 
     // ------------------------------------------------------------------ entity edits
@@ -343,6 +346,7 @@ public class KnowledgeStore {
                             r.get("raisedBy"))).orElseThrow();
             Resolution res = request.resolution();
             List<String> changed = new ArrayList<>();
+            List<ClaimView> activated = new ArrayList<>();
             MergeOutcome merge = null;
             String status = "RESOLVED";
             boolean duplicate = "DUPLICATE_CANDIDATE".equals(x.kind());
@@ -363,8 +367,8 @@ public class KnowledgeStore {
                         }
                     }
                 }
-                case ACCEPT_INCOMING -> changed.addAll(acceptIncoming(tx, x, note));
-                case KEEP_BOTH -> changed.addAll(keepBoth(tx, x, request));
+                case ACCEPT_INCOMING -> changed.addAll(acceptIncoming(tx, x, note, activated));
+                case KEEP_BOTH -> changed.addAll(keepBoth(tx, x, request, activated));
                 case MERGE -> {
                     String a = x.entity("CANDIDATE_A");
                     String b = x.entity("CANDIDATE_B");
@@ -381,6 +385,12 @@ public class KnowledgeStore {
                 }
                 case NOT_DUPLICATE -> status = "DISMISSED";
             }
+            // an accepted REPLACES claim supersedes the replaced decision's status, as on ingestion (ADR-030)
+            consequences.apply(tx, vocabulary, activated, null, principal, (outcome, entityId, claimId, cid) -> {
+                if (claimId != null && !changed.contains(claimId)) {
+                    changed.add(claimId);
+                }
+            });
             if (tx.run(KnowledgeStatements.RESOLVE_CONFLICT, P.of("id", conflictId, "status", status, "resolution",
                     res.name(), "by", principal, "note", note)).list().isEmpty() && res != Resolution.MERGE) {
                 throw new GraphSpindleException(ErrorCode.CONFLICT_STATE, "conflict is not OPEN");
@@ -390,7 +400,7 @@ public class KnowledgeStore {
     }
 
     /** ACCEPT_INCOMING: the existing claim is SUPERSEDED and the disputed incoming claim becomes ACTIVE. */
-    private List<String> acceptIncoming(ScopedTx tx, ConflictView x, String note) {
+    private List<String> acceptIncoming(ScopedTx tx, ConflictView x, String note, List<ClaimView> activated) {
         String incomingId = x.claim("INCOMING");
         if (incomingId == null) {
             throw new GraphSpindleException(ErrorCode.CONFLICT_STATE,
@@ -419,7 +429,9 @@ public class KnowledgeStore {
         } else {
             requireUnblocked(tx, in, keys, null);
         }
-        projections.sync(tx, activate(tx, in.id(), keys, reason));
+        ClaimView accepted = activate(tx, in.id(), keys, reason);
+        projections.sync(tx, accepted);
+        activated.add(accepted);
         if (existing != null) {
             claims.supersedes(tx, in.id(), existing.id(), reason);
         }
@@ -432,7 +444,8 @@ public class KnowledgeStore {
      * polarity whose validity ranges do not overlap (after the optional validFrom/validTo edits of
      * the incoming claim). The incoming claim becomes ACTIVE next to the existing one.
      */
-    private List<String> keepBoth(ScopedTx tx, ConflictView x, ResolutionRequest request) {
+    private List<String> keepBoth(ScopedTx tx, ConflictView x, ResolutionRequest request,
+            List<ClaimView> activated) {
         String incomingId = x.claim("INCOMING");
         String existingId = x.claim("EXISTING");
         if (incomingId == null || existingId == null) {
@@ -462,7 +475,9 @@ public class KnowledgeStore {
         }
         Keys keys = keysOf(tx.brainId(), in);
         requireUnblocked(tx, in, keys, ex.id());
-        projections.sync(tx, activate(tx, in.id(), keys, "conflict resolved: KEEP_BOTH"));
+        ClaimView kept = activate(tx, in.id(), keys, "conflict resolved: KEEP_BOTH");
+        projections.sync(tx, kept);
+        activated.add(kept);
         return List.of(in.id());
     }
 

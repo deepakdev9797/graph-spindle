@@ -27,6 +27,16 @@ public record Adjustment(int opIndex, String op, Kind kind, String message) {
          */
         CORRECTION_DOWNGRADED,
         /** The named speaker did not exist in the brain; the engine creates it (handle P0) with this plan. */
-        SPEAKER_CREATED
+        SPEAKER_CREATED,
+        /**
+         * A retract_claim without correction language in the input was not applied; the claim stays
+         * ACTIVE (ADR-030).
+         */
+        RETRACTION_DROPPED,
+        /**
+         * A new entity's name is very similar to an existing candidate of a compatible type and the model
+         * did not propose a merge: the engine opens a DUPLICATE_CANDIDATE conflict (SCHEMA §10.5, ADR-030).
+         */
+        DUPLICATE_SUSPECTED
     }
 }

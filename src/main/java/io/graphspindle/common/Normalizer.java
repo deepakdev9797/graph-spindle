@@ -69,6 +69,24 @@ public final class Normalizer {
         return n.isEmpty() ? Optional.empty() : Optional.of(n);
     }
 
+    /**
+     * The compact matching key of a name (M7 candidate lookup, ADR-030): {@code norm(s)} without a
+     * leading "the " and without anything but letters, digits, {@code +} and {@code #}, so "Graph
+     * Spindle", "graph-spindle", "The GraphSpindle" and "GraphSpindle." share one key while "C++",
+     * "C#" and "C" stay distinct. Empty when nothing is left. Only used to find candidates, never as
+     * an identity.
+     */
+    public static String compact(String input) {
+        String n = norm(input);
+        if (n.startsWith("the ") && n.length() > 4) {
+            n = n.substring(4);
+        }
+        StringBuilder b = new StringBuilder(n.length());
+        n.codePoints().filter(cp -> Character.isLetterOrDigit(cp) || cp == '+' || cp == '#')
+                .forEach(b::appendCodePoint);
+        return b.toString();
+    }
+
     /** {@code type.toLowerCase(ROOT) + ":" + normalizedName} (SCHEMA §7.3). */
     public static String canonicalKey(String type, String normalizedName) {
         if (type == null || type.isBlank() || normalizedName == null || normalizedName.isEmpty()) {

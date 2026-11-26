@@ -9,7 +9,11 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 
 /**
  * Opt-in manual smoke test: the running app (embedded server, in-process Neo4j) ingests the README
@@ -23,7 +27,54 @@ import org.springframework.boot.test.context.SpringBootTest;
 @EnabledIfSystemProperty(named = "graphspindle.live-llm", matches = "true")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=ollama", "spring.ai.ollama.base-url=http://localhost:11434"})
+@Import(LiveIngestionSmokeIT.RawCapture.class)
 class LiveIngestionSmokeIT extends AbstractNeo4jIT {
+
+    /**
+     * Test-only: prints each raw model answer ({@code LIVE-RAW}) so schema or prompt faults can be
+     * diagnosed (the application itself never logs model output). Add
+     * {@code -Dgraphspindle.llm.structured-output=PROMPT} to compare the prompt-only mode.
+     */
+    @TestConfiguration
+    static class RawCapture {
+
+        @Bean
+        static BeanPostProcessor rawLlmCapture() {
+            return new BeanPostProcessor() {
+                @Override
+                public Object postProcessAfterInitialization(Object bean, String name) {
+                    if (!(bean instanceof io.graphspindle.llm.IngestionLlm llm)) {
+                        return bean;
+                    }
+                    return new io.graphspindle.llm.IngestionLlm() {
+                        @Override
+                        public boolean available() {
+                            return llm.available();
+                        }
+
+                        @Override
+                        public String provider() {
+                            return llm.provider();
+                        }
+
+                        @Override
+                        public String model() {
+                            return llm.model();
+                        }
+
+                        @Override
+                        public io.graphspindle.llm.LlmReply complete(io.graphspindle.llm.LlmRequest request) {
+                            io.graphspindle.llm.LlmReply reply = llm.complete(request);
+                            System.out.println("LIVE-RAW " + request.promptId() + " forceSchema=" + request.forceSchema()
+                                    + " schema=" + (request.jsonSchema() != null) + " ms=" + reply.millis() + "\n"
+                                    + reply.text());
+                            return reply;
+                        }
+                    };
+                }
+            };
+        }
+    }
 
     @Value("${spring.ai.ollama.base-url}")
     String baseUrl;
@@ -49,6 +100,10 @@ class LiveIngestionSmokeIT extends AbstractNeo4jIT {
                 Map.of()));
         System.out.println("LIVE-SMOKE edges=" + query("MATCH (a:Entity {brainId:'dev'})-[x]->(b:Entity {brainId:'dev'})"
                 + " WHERE x.claimId IS NOT NULL RETURN a.name + ' -' + type(x) + '-> ' + b.name AS e ORDER BY e", Map.of()));
+        var body = tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body());
+        System.out.println("LIVE-SMOKE summary proposed=" + body.path("opsProposed") + " applied="
+                + body.path("opsApplied") + " rejected=" + body.path("opsRejected") + " codes="
+                + KnowledgeApi.texts(body.path("rejected"), "code") + " repairs=" + body.path("llm").path("repairs"));
         System.out.println("LIVE-SMOKE other=" + count("MATCH (n {brainId:'other'}) RETURN count(n)", Map.of()));
         assertThat(response.statusCode()).isIn(200, 201);
         assertThat(count("MATCH (n {brainId:'other'}) WHERE NOT n:Brain RETURN count(n)", Map.of())).isEqualTo(1);

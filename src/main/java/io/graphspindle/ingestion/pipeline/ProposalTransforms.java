@@ -34,34 +34,46 @@ public final class ProposalTransforms {
      * Every {@code supersede_claim} becomes a {@code flag_conflict} (incoming claim DISPUTED plus a
      * CONTRADICTION conflict against the targeted claim) unless the input itself contains correction
      * language and the model marked it as an explicit correction. The model's {@code explicitCorrection}
-     * flag alone is never trusted.
+     * flag alone is never trusted. A {@code retract_claim} without correction language is dropped
+     * (adjustment {@code RETRACTION_DROPPED}; the claim stays ACTIVE, ADR-030).
      */
     public static ParsedProposal downgradeUnsupportedCorrections(ParsedProposal parsed, CorrectionCues cues,
             String redactedContent) {
         boolean cue = cues.present(redactedContent);
         List<MutationOperation> ops = new ArrayList<>();
+        List<Integer> indexes = new ArrayList<>();
         List<Adjustment> adjustments = new ArrayList<>(parsed.adjustments());
         boolean changed = false;
         for (int i = 0; i < parsed.proposal().operations().size(); i++) {
             MutationOperation op = parsed.proposal().operations().get(i);
+            if (op instanceof RetractClaim r && !cue) {
+                // a retraction says "this was wrong": like a correction, it needs correction language (ADR-030)
+                adjustments.add(new Adjustment(parsed.wireIndexes().get(i), RetractClaim.OP,
+                        Adjustment.Kind.RETRACTION_DROPPED, "retract_claim of " + r.claimHandle()
+                                + " not applied: the input contains no correction language"));
+                changed = true;
+                continue;
+            }
             if (op instanceof SupersedeClaim s && !(cue && s.explicitCorrection())) {
                 String why = cue ? "the model did not mark it as an explicit correction"
                         : "the input contains no correction language";
                 ops.add(new FlagConflict(s.claimHandle(), s.replacement(), Normalizer.truncate(
                         "Possible contradiction, not applied as a correction (" + why + "): " + s.reason().strip(),
                         MAX_FLAG_DESCRIPTION)));
+                indexes.add(parsed.wireIndexes().get(i));
                 adjustments.add(new Adjustment(parsed.wireIndexes().get(i), SupersedeClaim.OP,
                         Adjustment.Kind.CORRECTION_DOWNGRADED, "supersede_claim of " + s.claimHandle()
                                 + " recorded as a disputed claim with a conflict: " + why));
                 changed = true;
             } else {
                 ops.add(op);
+                indexes.add(parsed.wireIndexes().get(i));
             }
         }
         if (!changed) {
             return parsed;
         }
-        return new ParsedProposal(new Proposal(parsed.proposal().summary(), ops), parsed.wireIndexes(),
+        return new ParsedProposal(new Proposal(parsed.proposal().summary(), ops), indexes,
                 parsed.rejected(), parsed.unknownFields(), adjustments, parsed.droppedRefs());
     }
 

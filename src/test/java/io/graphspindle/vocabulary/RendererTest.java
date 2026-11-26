@@ -73,24 +73,55 @@ class RendererTest {
         List<String> opNames = new ArrayList<>();
         ops.get("items").get("oneOf").forEach(o -> opNames.add(o.get("properties").get("op").get("const").stringValue()));
         assertThat(opNames).containsExactly("create_entity", "update_entity", "add_alias", "assert_claim",
-                "supersede_claim", "retract_claim", "flag_conflict", "propose_merge", "link_source");
+                "assert_claim", "supersede_claim", "retract_claim", "flag_conflict", "propose_merge", "link_source");
 
         JsonNode create = ops.get("items").get("oneOf").get(0);
         List<String> types = new ArrayList<>();
         create.get("properties").get("type").get("enum").forEach(t -> types.add(t.stringValue()));
         assertThat(types).containsExactlyElementsOf(core.entityTypeNames());
 
-        JsonNode assertClaim = ops.get("items").get("oneOf").get(3);
-        List<String> predicates = new ArrayList<>();
-        assertClaim.get("properties").get("predicate").get("enum").forEach(p -> predicates.add(p.stringValue()));
-        assertThat(predicates).hasSize(28 + 21).contains("USES", "status", "homepage", "email");
-        assertThat(assertClaim.get("properties").get("evidence").get("maxLength").intValue()).isEqualTo(300);
+        // assert_claim: a relation alternative (object required) and an attribute alternative (value required)
+        JsonNode relationClaim = ops.get("items").get("oneOf").get(3);
+        JsonNode attributeClaim = ops.get("items").get("oneOf").get(4);
+        List<String> relations = new ArrayList<>();
+        relationClaim.get("properties").get("predicate").get("enum").forEach(p -> relations.add(p.stringValue()));
+        List<String> attributes = new ArrayList<>();
+        attributeClaim.get("properties").get("predicate").get("enum").forEach(p -> attributes.add(p.stringValue()));
+        assertThat(relations).hasSize(28).contains("USES").doesNotContain("status");
+        assertThat(attributes).hasSize(21).contains("status", "homepage", "email").doesNotContain("USES");
+        assertThat(relationClaim.get("required").toString()).contains("\"object\"", "\"statement\"", "\"op\"");
+        assertThat(relationClaim.get("properties").has("value")).isFalse();
+        assertThat(attributeClaim.get("required").toString()).contains("\"value\"", "\"statement\"");
+        assertThat(attributeClaim.get("properties").has("object")).isFalse();
+        assertThat(relationClaim.get("properties").get("evidence").get("maxLength").intValue()).isEqualTo(300);
         // value must admit the longest attribute literal (homepage URLs up to 2000), not 500
-        assertThat(assertClaim.get("properties").get("value").get("maxLength").intValue())
+        assertThat(attributeClaim.get("properties").get("value").get("maxLength").intValue())
                 .isEqualTo(AttributeValues.MAX_VALUE_LENGTH);
-        assertThat(assertClaim.get("oneOf")).hasSize(2);
-        JsonNode supersede = ops.get("items").get("oneOf").get(4);
-        assertThat(supersede.get("properties").get("replacement").get("properties").has("op")).isFalse();
+        JsonNode supersede = ops.get("items").get("oneOf").get(5);
+        assertThat(supersede.get("properties").get("replacement").toString())
+                .contains("#/$defs/relationClaim", "#/$defs/attributeClaim");
+        assertThat(root.get("$defs").get("relationClaim").get("properties").has("op")).isFalse();
+
+        // every operation alternative is a closed object, and no schema mixes "oneOf" with sibling
+        // properties/required (grammar converters read that as "any value", ADR-030)
+        ops.get("items").get("oneOf").forEach(o -> {
+            assertThat(o.get("type").stringValue()).isEqualTo("object");
+            assertThat(o.get("additionalProperties").booleanValue()).isFalse();
+        });
+        assertNoMixedOneOf(root);
+    }
+
+    private static void assertNoMixedOneOf(JsonNode n) {
+        if (n.isObject()) {
+            if (n.has("oneOf")) {
+                assertThat(n.has("properties") || n.has("required") || n.has("type")).as(n.toString()).isFalse();
+                n.get("oneOf").forEach(alt -> assertThat(alt.has("type") || alt.has("$ref")).as(alt.toString())
+                        .isTrue());
+            }
+            n.forEach(RendererTest::assertNoMixedOneOf);
+        } else if (n.isArray()) {
+            n.forEach(RendererTest::assertNoMixedOneOf);
+        }
     }
 
     @Test

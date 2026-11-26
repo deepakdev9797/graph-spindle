@@ -184,6 +184,9 @@ public final class OperationValidator {
                     }
                 }
             }
+            // adjustments of operations an engine transform removed (e.g. RETRACTION_DROPPED) are kept
+            java.util.Set<Integer> present = new java.util.HashSet<>(parsed.wireIndexes());
+            parsed.adjustments().stream().filter(a -> !present.contains(a.opIndex())).forEach(adjusted::add);
             rejected.sort(Comparator.comparingInt(ValidationIssue::opIndex));
             return new ValidatedPlan(summary(), commands, rejected, adjusted, refs);
         }

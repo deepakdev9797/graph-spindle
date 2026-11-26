@@ -859,7 +859,7 @@ If the same text had said "Correction: GraphSpindle is actually GPL-3.0", the ou
 - `norm("Graph Spindle") = "graph spindle"`, which is not an alias, so there is no exact match.
 - Fulltext finds e1 with a high score.
 - The reconcile stage may answer `{"id":"e1"}`, which is accepted because e1 is in the candidate set and the type is compatible. It may also create `Project "Graph Spindle"` plus `{"op":"propose_merge","a":{"ref":"x"},"b":{"id":"e1"},"reason":"spacing variant"}`, which yields a DUPLICATE_CANDIDATE conflict.
-- If the stage creates a new entity without proposing a merge while a fulltext candidate of the same type scored above `duplicateSuspicionScore`, the engine **itself** opens a DUPLICATE_CANDIDATE conflict.
+- If the stage creates a new entity without proposing a merge while a candidate of a compatible type has a name (or alias) at least `duplicateSuspicionScore` similar (deterministic compact-key edit-distance score, default 0.85, ADR-030), the engine **itself** opens a DUPLICATE_CANDIDATE conflict.
 
 ---
 

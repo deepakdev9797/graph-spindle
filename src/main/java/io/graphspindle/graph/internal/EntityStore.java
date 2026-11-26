@@ -85,7 +85,13 @@ public class EntityStore {
 
     /** Fulltext search within the brain; {@code text} is escaped, never passed to Lucene raw. */
     public List<ScoredEntity> fulltext(ScopedTx tx, String text, int limit) {
-        String query = Lucene.scoped(tx.brainId(), text, "name", "description");
+        return fulltext(tx, text, limit, false);
+    }
+
+    /** Fulltext over name and description; {@code fuzzy} adds one-typo variants (candidate lookup). */
+    public List<ScoredEntity> fulltext(ScopedTx tx, String text, int limit, boolean fuzzy) {
+        String query = fuzzy ? Lucene.scopedFuzzy(tx.brainId(), text, "name", "description")
+                : Lucene.scoped(tx.brainId(), text, "name", "description");
         if (query.isBlank()) {
             return List.of();
         }

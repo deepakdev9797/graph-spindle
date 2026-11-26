@@ -73,12 +73,40 @@ public final class Lucene {
     }
 
     /**
+     * {@link #terms} plus a fuzzy variant ({@code word~1}) of every plain word of at least 5 letters,
+     * for the candidate lookup only (one typo: "Graphspindel"). Empty when the text has no words.
+     */
+    public static String fuzzyTerms(String text) {
+        String t = terms(text);
+        if (t.isEmpty()) {
+            return t;
+        }
+        StringBuilder out = new StringBuilder(t);
+        int added = 0;
+        for (String w : t.split(" ")) {
+            if (w.length() >= 5 && w.chars().allMatch(Character::isLetterOrDigit) && added < MAX_WORDS) {
+                out.append(' ').append(w).append("~1");
+                added++;
+            }
+        }
+        return out.toString();
+    }
+
+    /** Like {@link #scoped}, with {@link #fuzzyTerms}. */
+    public static String scopedFuzzy(String brainId, String text, String... fields) {
+        return scoped(brainId, fuzzyTerms(text), true, fields);
+    }
+
+    /**
      * A query that requires the brain's scope token and matches the terms in the given fields only
      * (never in {@code ftScope} itself): {@code +ftScope:dev +(name:(a b) description:(a b))}. Empty
      * when the text has no words.
      */
     public static String scoped(String brainId, String text, String... fields) {
-        String t = terms(text);
+        return scoped(brainId, terms(text), true, fields);
+    }
+
+    private static String scoped(String brainId, String t, boolean prepared, String... fields) {
         if (t.isEmpty()) {
             return "";
         }

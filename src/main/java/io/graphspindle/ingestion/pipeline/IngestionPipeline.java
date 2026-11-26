@@ -45,7 +45,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Stages 1–5 of an admitted ingestion (ARCHITECTURE §3): extract (LLM) → candidates (this brain's
- * graph) → reconcile (LLM) → parse (one repair) → engine transforms (ADR-028) → validate → apply.
+ * graph) → reconcile (LLM) → parse (one repair) → engine transforms (ADR-028) → validate → duplicate
+ * suspicion (ADR-030) → apply.
  * Synchronous within a total time budget; every stage is a plain method call on immutable inputs, so
  * an asynchronous runner can call {@link #run} later unchanged.
  */
@@ -208,6 +209,9 @@ public class IngestionPipeline {
             }
         }
 
+        // counted before the engine transforms, which may drop operations (ADR-030)
+        int proposed = parsed.wireOperationCount();
+
         // engine transforms (ADR-028)
         if (job.speaker() == null && job.namedSpeaker() != null) {
             parsed = ProposalTransforms.createSpeaker(parsed, job.namedSpeaker().type(), job.namedSpeaker().name());
@@ -219,7 +223,9 @@ public class IngestionPipeline {
         ValidationContext ctx = new ValidationContext(job.scope().brainId(), vocab, candidates.set(), job.content(),
                 summaries, limits, job.config().validationPolicy(), new SecretScanner());
         ValidatedPlan plan = validator.validate(parsed, ctx);
-        int proposed = parsed.wireOperationCount();
+        // the engine flags near-duplicate new entities itself (SCHEMA §10.5, ADR-030)
+        plan = DuplicateSuspicion.addSuspectedDuplicates(plan, candidates.set(), vocab,
+                job.config().duplicateSuspicionScore());
         int rejectedOps = (int) plan.rejected().stream().mapToInt(ValidationIssue::opIndex).filter(i -> i >= 0)
                 .distinct().count();
         IngestResult.LlmInfo info = calls.info();

@@ -20,6 +20,8 @@ import java.util.List;
  * @param dedupWindowHours window for content-hash deduplication; default 24
  * @param limits per-ingestion limits
  * @param vocabulary the brain's vocabulary subset and extensions; default core-v1 unchanged
+ * @param duplicateSuspicionScore a new entity whose name is at least this similar ({@code NameMatch},
+ *     0.5..1) to an existing compatible candidate opens a DUPLICATE_CANDIDATE conflict; default 0.85
  */
 public record BrainConfig(
         ConflictPolicy conflictPolicy,
@@ -30,7 +32,18 @@ public record BrainConfig(
         Integer rawContentMaxChars,
         Integer dedupWindowHours,
         BrainLimits limits,
-        VocabularyConfig vocabulary) {
+        VocabularyConfig vocabulary,
+        Double duplicateSuspicionScore) {
+
+    /** Default {@code duplicateSuspicionScore} (ADR-030). */
+    public static final double DEFAULT_DUPLICATE_SUSPICION_SCORE = 0.85;
+
+    public BrainConfig(ConflictPolicy conflictPolicy, Double minConfidence, Double maxLlmConfidence,
+            Boolean allowLlmSupersession, Boolean retainRawContent, Integer rawContentMaxChars,
+            Integer dedupWindowHours, BrainLimits limits, VocabularyConfig vocabulary) {
+        this(conflictPolicy, minConfidence, maxLlmConfidence, allowLlmSupersession, retainRawContent,
+                rawContentMaxChars, dedupWindowHours, limits, vocabulary, null);
+    }
 
     public BrainConfig {
         conflictPolicy = conflictPolicy == null ? ConflictPolicy.EXPLICIT_CORRECTIONS_SUPERSEDE : conflictPolicy;
@@ -42,6 +55,8 @@ public record BrainConfig(
         dedupWindowHours = dedupWindowHours == null ? 24 : dedupWindowHours;
         limits = limits == null ? BrainLimits.defaults() : limits;
         vocabulary = vocabulary == null ? OMITTED_VOCABULARY : vocabulary;
+        duplicateSuspicionScore = duplicateSuspicionScore == null ? DEFAULT_DUPLICATE_SUSPICION_SCORE
+                : duplicateSuspicionScore;
     }
 
     /**
@@ -57,12 +72,12 @@ public record BrainConfig(
     }
 
     public static BrainConfig defaults() {
-        return new BrainConfig(null, null, null, null, null, null, null, null, null);
+        return new BrainConfig(null, null, null, null, null, null, null, null, null, null);
     }
 
     public BrainConfig withVocabulary(VocabularyConfig v) {
         return new BrainConfig(conflictPolicy, minConfidence, maxLlmConfidence, allowLlmSupersession, retainRawContent,
-                rawContentMaxChars, dedupWindowHours, limits, v);
+                rawContentMaxChars, dedupWindowHours, limits, v, duplicateSuspicionScore);
     }
 
     /** Validation thresholds for {@code OperationValidator}. */
@@ -81,6 +96,9 @@ public record BrainConfig(
         }
         if (rawContentMaxChars < 0 || rawContentMaxChars > 100_000) {
             p.add("rawContentMaxChars must be within 0..100000");
+        }
+        if (!(duplicateSuspicionScore >= 0.5 && duplicateSuspicionScore <= 1.0)) {
+            p.add("duplicateSuspicionScore must be within 0.5..1");
         }
         if (dedupWindowHours < 0 || dedupWindowHours > 720) {
             p.add("dedupWindowHours must be within 0..720");

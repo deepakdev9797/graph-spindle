@@ -40,9 +40,13 @@ public final class OutputSchemaRenderer {
         ArrayNode oneOf = ops.putObject("items").putArray("oneOf");
 
         List<String> types = new ArrayList<>(vocabulary.entityTypeNames());
-        Set<String> predicates = new LinkedHashSet<>();
-        vocabulary.relationPredicates().forEach(p -> predicates.add(p.name()));
-        predicates.addAll(vocabulary.attributeNames());
+        Set<String> relations = new LinkedHashSet<>();
+        vocabulary.relationPredicates().forEach(p -> relations.add(p.name()));
+        Set<String> attributes = new LinkedHashSet<>(vocabulary.attributeNames());
+        // nested claims (replacement, incoming) refer to these definitions
+        ObjectNode defs = root.putObject("$defs");
+        defs.set(RELATION_CLAIM, claimBody(relations, true, limits));
+        defs.set(ATTRIBUTE_CLAIM, claimBody(attributes, false, limits));
 
         oneOf.add(op("create_entity", List.of("ref", "type", "name"), p -> {
             p.set("ref", pattern(REF_PATTERN));
@@ -63,15 +67,26 @@ public final class OutputSchemaRenderer {
             p.set("target", entityTarget());
             p.set("alias", string(200));
         }));
-        ObjectNode assertClaim = claimBody(predicates, limits);
-        ((ObjectNode) assertClaim.get("properties")).set("op", constant("assert_claim"));
-        ((ArrayNode) assertClaim.get("required")).insert(0, "op");
-        oneOf.add(assertClaim);
+        // two complete alternatives instead of one object with a sibling "oneOf" of bare "required"
+        // lists: grammar-based structured output (Ollama/llama.cpp) reads such a oneOf as "any JSON
+        // value", which let gemma4 close a claim early and emit its remaining fields as stray array
+        // items (live smoke, ADR-030)
+        for (ObjectNode assertClaim : List.of(claimBody(relations, true, limits), claimBody(attributes, false, limits))) {
+            ObjectNode withOp = mapper.createObjectNode();
+            withOp.put("type", "object");
+            withOp.put("additionalProperties", false);
+            ArrayNode req = withOp.putArray("required").add("op");
+            assertClaim.get("required").forEach(req::add);
+            ObjectNode claimProps = withOp.putObject("properties");
+            claimProps.set("op", constant("assert_claim"));
+            assertClaim.get("properties").properties().forEach(e -> claimProps.set(e.getKey(), e.getValue()));
+            oneOf.add(withOp);
+        }
         oneOf.add(op("supersede_claim", List.of("claimId", "explicitCorrection", "reason", "replacement"), p -> {
             p.set("claimId", string(20));
             p.putObject("explicitCorrection").put("type", "boolean");
             p.set("reason", string(300));
-            p.set("replacement", claimBody(predicates, limits));
+            p.set("replacement", claimRef());
         }));
         oneOf.add(op("retract_claim", List.of("claimId", "reason", "evidence"), p -> {
             p.set("claimId", string(20));
@@ -80,7 +95,7 @@ public final class OutputSchemaRenderer {
         }));
         oneOf.add(op("flag_conflict", List.of("claimId", "incoming", "description"), p -> {
             p.set("claimId", string(20));
-            p.set("incoming", claimBody(predicates, limits));
+            p.set("incoming", claimRef());
             p.set("description", string(500));
         }));
         oneOf.add(op("propose_merge", List.of("a", "b", "reason"), p -> {
@@ -98,20 +113,37 @@ public final class OutputSchemaRenderer {
         return root;
     }
 
-    private ObjectNode claimBody(Set<String> predicates, Limits limits) {
+    static final String RELATION_CLAIM = "relationClaim";
+    static final String ATTRIBUTE_CLAIM = "attributeClaim";
+
+    /** A nested claim: a relation claim (with {@code object}) or an attribute claim (with {@code value}). */
+    private ObjectNode claimRef() {
+        ObjectNode node = mapper.createObjectNode();
+        ArrayNode oneOf = node.putArray("oneOf");
+        oneOf.addObject().put("$ref", "#/$defs/" + RELATION_CLAIM);
+        oneOf.addObject().put("$ref", "#/$defs/" + ATTRIBUTE_CLAIM);
+        return node;
+    }
+
+    /** A complete claim object: relation claims require {@code object}, attribute claims {@code value}. */
+    private ObjectNode claimBody(Set<String> predicates, boolean relation, Limits limits) {
         ObjectNode body = mapper.createObjectNode();
         body.put("type", "object");
         body.put("additionalProperties", false);
         ArrayNode required = body.putArray("required");
-        List.of("subject", "predicate", "statement", "evidence", "confidence").forEach(required::add);
+        List.of("subject", "predicate", relation ? "object" : "value", "statement", "evidence", "confidence")
+                .forEach(required::add);
         ObjectNode p = body.putObject("properties");
         p.set("subject", entityTarget());
         p.set("predicate", enumOf(new ArrayList<>(predicates)));
-        p.set("object", entityTarget());
-        // the longest literal any attribute accepts (URL values may have up to 2000 characters)
-        ObjectNode value = string(AttributeValues.MAX_VALUE_LENGTH);
-        value.put("description", "literal value for attribute predicates");
-        p.set("value", value);
+        if (relation) {
+            p.set("object", entityTarget());
+        } else {
+            // the longest literal any attribute accepts (URL values may have up to 2000 characters)
+            ObjectNode value = string(AttributeValues.MAX_VALUE_LENGTH);
+            value.put("description", "literal value for attribute predicates");
+            p.set("value", value);
+        }
         p.set("polarity", enumOf(List.of("POSITIVE", "NEGATIVE")));
         p.set("statement", string(500));
         ObjectNode evidence = string(300);
@@ -129,9 +161,6 @@ public final class OutputSchemaRenderer {
         ObjectNode item = sources.putObject("items");
         item.put("type", "integer");
         item.put("minimum", 0);
-        ArrayNode exactlyOne = body.putArray("oneOf");
-        exactlyOne.addObject().putArray("required").add("object");
-        exactlyOne.addObject().putArray("required").add("value");
         return body;
     }
 

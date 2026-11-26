@@ -62,6 +62,16 @@ public class GraphReader {
         return tx.read(scope, t -> entities.fulltext(t, text, limit));
     }
 
+    /** Fulltext with one-typo variants of longer words, for the ingestion candidate lookup. */
+    public List<ScoredEntity> fulltextEntitiesFuzzy(BrainScope scope, String text, int limit) {
+        return tx.read(scope, t -> entities.fulltext(t, text, limit, true));
+    }
+
+    /** Entities with an alias of this compact key (ADR-030), at most {@code limit}. */
+    public List<EntityView> entitiesByCompactAlias(BrainScope scope, String compact, int limit) {
+        return tx.read(scope, t -> aliases.lookupCompact(t, compact, limit));
+    }
+
     public Optional<ClaimView> claim(BrainScope scope, String id) {
         return tx.read(scope, t -> claims.findById(t, id));
     }

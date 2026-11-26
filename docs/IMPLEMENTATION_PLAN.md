@@ -174,6 +174,8 @@ The work is a series of vertical slices. Every milestone ends with a green `./mv
 - `ConcurrentIngestionIT`: two ingestions creating the same new entity in parallel yield exactly one entity and both ingestions APPLIED.
 - `PolicyConfigIT`: under `ALWAYS_FLAG` an explicit correction is flagged and not applied. Under `LATEST_WINS` an implicit contradiction from the same principal supersedes.
 
+**Status:** done (ADR-030). Acceptance tests as listed, plus `ConsequenceOnResolutionIT` and `ConstraintRetryIT`.
+
 ## M8: MCP tools and parity tests
 
 **Scope**
