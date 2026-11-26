@@ -24,7 +24,7 @@ class CypherScopingTest {
     static final String INTERNAL = "io.graphspindle.graph.internal.";
     static final List<String> STATEMENT_CLASSES = List.of("BrainStatements", "EntityStatements", "AliasStatements",
             "ClaimStatements", "ProjectionStatements", "IngestionStatements", "SourceStatements", "ConflictStatements",
-            "VerifierStatements");
+            "VerifierStatements", "KnowledgeStatements", "RetrievalStatements");
     static final Set<String> ALLOWLIST = Set.of("BrainStatements.LIST_ALL");
     static final Pattern CYPHER = Pattern.compile(
             "\\b(MATCH|MERGE|CREATE) \\(|DETACH DELETE|CREATE (CONSTRAINT|INDEX|FULLTEXT)|CALL db\\.|\\bRETURN [a-z]");

@@ -1,9 +1,13 @@
 package io.graphspindle.graph.internal;
 
 import io.graphspindle.graph.ClaimView;
+import io.graphspindle.graph.ConflictView;
 import io.graphspindle.graph.EntityView;
 import io.graphspindle.graph.IngestionRecord;
+import io.graphspindle.graph.SourceView;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import org.neo4j.driver.Value;
@@ -48,6 +52,31 @@ public final class Rows {
                 i.get("report").asString(null), i.get("llmProvider").asString(null), i.get("llmModel").asString(null),
                 i.get("promptVersion").asString(null), instant(i.get("occurredAt")), instant(i.get("receivedAt")),
                 instant(i.get("completedAt")), i.get("rawContent").asString(null));
+    }
+
+    public static SourceView source(Value s) {
+        return new SourceView(s.get("id").asString(), s.get("kind").asString(), s.get("locator").asString(),
+                s.get("title").asString(null), s.get("summary").asString(null), s.get("mediaType").asString(null),
+                instant(s.get("createdAt")), instant(s.get("lastSeenAt")));
+    }
+
+    /** {@code x} is the Conflict node, {@code involves} a list of {role, id, label} maps. */
+    public static ConflictView conflict(Value x, Value involves, Value raisedBy) {
+        List<ConflictView.Involved> list = new ArrayList<>();
+        for (Value i : involves.values()) {
+            if (!i.get("id").isNull()) {
+                list.add(new ConflictView.Involved(i.get("role").asString(null), i.get("label").asString(),
+                        i.get("id").asString()));
+            }
+        }
+        list.sort(java.util.Comparator.comparing(ConflictView.Involved::role,
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                .thenComparing(ConflictView.Involved::id));
+        return new ConflictView(x.get("id").asString(), x.get("kind").asString(), x.get("status").asString(),
+                x.get("description").asString(null), instant(x.get("createdAt")), instant(x.get("resolvedAt")),
+                x.get("resolution").asString(null), x.get("resolvedBy").asString(null),
+                x.get("resolutionNote").asString(null), raisedBy == null || raisedBy.isNull() ? null : raisedBy.asString(),
+                list);
     }
 
     static Instant instant(Value v) {

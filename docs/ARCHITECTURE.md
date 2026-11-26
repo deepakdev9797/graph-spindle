@@ -278,6 +278,7 @@ All retrieval is deterministic and needs no LLM.
 | `GET /brains/{brainId}/entities/{id}` | BRAIN_READ | `EntityContextService.context` |
 | `PATCH /brains/{brainId}/entities/{id}` | BRAIN_WRITE | `KnowledgeService.updateEntity` (name, description lock) |
 | `DELETE /brains/{brainId}/entities/{id}` | BRAIN_WRITE | `KnowledgeService.archiveEntity` (soft) |
+| `GET /brains/{brainId}/entities/{id}/aliases` | BRAIN_READ | `KnowledgeService.aliases` |
 | `POST /brains/{brainId}/entities/{id}/aliases` | BRAIN_WRITE | `KnowledgeService.addAlias` |
 | `GET /brains/{brainId}/entities/{id}/neighbors?depth=&predicates=` | BRAIN_READ | `NeighborhoodService.neighbors` |
 | `POST /brains/{brainId}/entities/merge` | BRAIN_WRITE | `KnowledgeService.mergeEntities` |
@@ -291,6 +292,8 @@ All retrieval is deterministic and needs no LLM.
 | `GET /brains/{brainId}/sources` / `/{id}` | BRAIN_READ | `KnowledgeService.listSources/getSource` |
 | `POST /admin/api-keys`, `GET /admin/api-keys`, `DELETE /admin/api-keys/{keyId}` | ADMIN (or BRAIN_ADMIN for keys limited to its brains) | `ApiKeyAdminService` |
 | `GET /admin/brains/{brainId}/projection-check` | BRAIN_ADMIN | `ProjectionVerifier` |
+
+Implemented in M5 (ADR-023): every row above except ingestions, api-keys and `GET /system/info`. Lists use keyset pagination (`cursor` = the `next` value of the previous page, `limit` ≤ 200, default 50) and return `{items, next}`. `GET /entities/{id}` accepts `maxClaims` (≤ 100, default 30); `/neighbors` accepts `limit` (≤ 200 nodes, default 50); `/search` takes `types` as a comma-separated list. Until M9 every request acts as the principal `admin`.
 
 Swagger UI is at `/swagger-ui.html` and OpenAPI at `/v3/api-docs`. Both require authentication unless security is disabled on loopback. Actuator `health` is unauthenticated and returns status only, without details.
 
