@@ -34,6 +34,21 @@ public final class ConflictStatements {
             RETURN x.id AS id LIMIT 1
             """;
 
+    /**
+     * An OPEN conflict of {@code $kind} whose EXISTING claim is {@code $existingId} and whose INCOMING
+     * claim is a DISPUTED claim with the same triple and polarity: a repeated identical contradiction
+     * reinforces it instead of opening another conflict.
+     */
+    public static final String FIND_OPEN_DISPUTE = """
+            MATCH (x:Conflict {brainId: $brainId, status: 'OPEN', kind: $kind})
+                  -[:INVOLVES {brainId: $brainId, role: 'EXISTING'}]->(:Claim {brainId: $brainId, id: $existingId})
+            MATCH (x)-[:INVOLVES {brainId: $brainId, role: 'INCOMING'}]->(c:Claim {brainId: $brainId, status: 'DISPUTED'})
+            WHERE c.subjectId = $subjectId AND c.predicate = $predicate AND c.polarity = $polarity
+              AND coalesce(c.objectId, '') = $objectId AND coalesce(c.valueType, '') = $valueType
+              AND coalesce(c.valueNorm, '') = $valueNorm
+            RETURN c, x.id AS conflictId ORDER BY x.createdAt LIMIT 1
+            """;
+
     public static final String FIND_BY_ID = """
             MATCH (x:Conflict {brainId: $brainId, id: $id})
             OPTIONAL MATCH (x)-[r:INVOLVES {brainId: $brainId}]->(t)

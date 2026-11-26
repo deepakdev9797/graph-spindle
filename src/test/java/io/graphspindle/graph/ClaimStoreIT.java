@@ -129,7 +129,19 @@ class ClaimStoreIT extends AbstractGraphIT {
         assertThat(implicit.outcomes(Outcome.CLAIM_DISPUTED)).hasSize(1);
         ApplyResult flagged = apply(a, "tester", ConflictPolicy.ALWAYS_FLAG, List.of(),
                 new SupersedeClaimCommand(0, now, true, "really", relation(project, "LICENSED_UNDER", apache, POSITIVE)));
-        assertThat(flagged.outcomes(Outcome.CLAIM_DISPUTED)).hasSize(1);
+        // the same contradiction against the same claim is not stored twice: it reinforces the DISPUTED
+        // claim of the still OPEN conflict (ADR-022) and is still not applied
+        assertThat(flagged.outcomes(Outcome.DISPUTE_REINFORCED)).singleElement().satisfies(o -> {
+            assertThat(o.claimId()).isEqualTo(implicit.outcomes(Outcome.CLAIM_DISPUTED).get(0).claimId());
+            assertThat(o.conflictId()).isEqualTo(implicit.outcomes(Outcome.CLAIM_DISPUTED).get(0).conflictId());
+        });
+        assertThat(reader.claim(a, flagged.outcomes(Outcome.DISPUTE_REINFORCED).get(0).claimId()).orElseThrow()
+                .evidenceCount()).isEqualTo(2);
+        ResolvedEntity.Existing gpl = existing(apply(a, create(0, "g", "Standard", "GPL-3.0")).refs().get("g"),
+                "Standard");
+        ApplyResult flaggedOther = apply(a, "tester", ConflictPolicy.ALWAYS_FLAG, List.of(),
+                new SupersedeClaimCommand(0, now, true, "really", relation(project, "LICENSED_UNDER", gpl, POSITIVE)));
+        assertThat(flaggedOther.outcomes(Outcome.CLAIM_DISPUTED)).hasSize(1);
         assertThat(reader.claim(a, now).orElseThrow().active()).isTrue();
     }
 

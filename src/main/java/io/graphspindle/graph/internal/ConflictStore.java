@@ -31,6 +31,19 @@ public class ConflictStore {
         }
     }
 
+    /** The DISPUTED incoming claim of an OPEN conflict (see {@link ConflictStatements#FIND_OPEN_DISPUTE}). */
+    public record Dispute(io.graphspindle.graph.ClaimView claim, String conflictId) {
+    }
+
+    public Optional<Dispute> openDispute(ScopedTx tx, String kind, String existingId, String subjectId,
+            String predicate, String polarity, String objectId, String valueType, String valueNorm) {
+        return tx.run(ConflictStatements.FIND_OPEN_DISPUTE, P.of("kind", kind, "existingId", existingId, "subjectId",
+                subjectId, "predicate", predicate, "polarity", polarity, "objectId", objectId == null ? "" : objectId,
+                "valueType", valueType == null ? "" : valueType, "valueNorm", valueNorm == null ? "" : valueNorm))
+                .list().stream().findFirst()
+                .map(r -> new Dispute(Rows.claim(r.get("c")), r.get("conflictId").asString()));
+    }
+
     public Optional<String> openDuplicate(ScopedTx tx, String a, String b) {
         return tx.run(ConflictStatements.FIND_OPEN_DUPLICATE, P.of("a", a, "b", b)).list().stream().findFirst()
                 .map(r -> r.get("id").asString());

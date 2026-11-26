@@ -60,8 +60,10 @@ public class EntityStore {
         }
     }
 
-    public void updateDescription(ScopedTx tx, String id, String description) {
-        if (tx.run(EntityStatements.UPDATE_DESCRIPTION, P.of("id", id, "description", description)).list().isEmpty()) {
+    /** Sets the description; {@code locked} sets {@code descriptionLocked} (a MANUAL edit locks it). */
+    public void updateDescription(ScopedTx tx, String id, String description, boolean locked) {
+        if (tx.run(EntityStatements.UPDATE_DESCRIPTION, P.of("id", id, "description", description, "locked", locked))
+                .list().isEmpty()) {
             throw GraphSpindleException.notFound("entity", id);
         }
     }
@@ -83,7 +85,7 @@ public class EntityStore {
 
     /** Fulltext search within the brain; {@code text} is escaped, never passed to Lucene raw. */
     public List<ScoredEntity> fulltext(ScopedTx tx, String text, int limit) {
-        String query = Lucene.escape(text);
+        String query = Lucene.scoped(tx.brainId(), text, "name", "description");
         if (query.isBlank()) {
             return List.of();
         }

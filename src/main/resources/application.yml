@@ -13,6 +13,15 @@ spring:
     deserialization:
       # strict API input: misspelled fields are errors, not silently ignored
       fail-on-unknown-properties: true
+      # ... and so is content after the JSON document
+      fail-on-trailing-tokens: true
+    read:
+      # duplicate keys are errors, not last-wins
+      strict-duplicate-detection: true
+graphspindle:
+  api:
+    # request body cap (413 LIMIT_EXCEEDED above it)
+    max-request-bytes: ${GRAPHSPINDLE_MAX_REQUEST_BYTES:1048576}
 server:
   # Local-only by default; expose deliberately and only with authentication enabled.
   address: ${GRAPHSPINDLE_BIND_ADDRESS:127.0.0.1}

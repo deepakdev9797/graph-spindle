@@ -233,7 +233,7 @@ Prompts live in `src/main/resources/prompts/*.st` as versioned files. Changing a
 
 **Limits (defaults, configurable)**
 - Content ≤ 32,000 characters; ≤ 10 sources; ≤ 60 ops; ≤ 25 new entities; ≤ 5 aliases per entity per ingestion.
-- Request body ≤ 256 KB.
+- Request body ≤ 1 MiB (`graphspindle.api.max-request-bytes`; 413 `LIMIT_EXCEEDED`, also for streamed bodies). JSON input is strict: unknown properties, duplicate keys and trailing content are 400 (ADR-022).
 - Search `limit` ≤ 50; neighbourhood depth ≤ 2 and ≤ 200 nodes.
 - Per-key token bucket: ingest 30/min, read 300/min, in memory. **Flagged:** this is single-instance only.
 
@@ -322,7 +322,8 @@ Parity: a shared contract test suite (M8) runs each scenario through REST and MC
 - `@Transactional` with the Neo4j transaction manager auto-configured by Spring Data Neo4j. Stage 5 runs in one write transaction, and reads in stage 2 use a read transaction.
 - Projection maintenance happens inside the same transaction as the claim change (SCHEMA I3).
 - Merge and conflict resolution are single transactions.
-- Brain deletion runs in batches of 10,000 (`CALL { … } IN TRANSACTIONS`). The brain is first set to `DELETING`, which blocks all other operations with 409.
+- Every brain-scoped write transaction first takes the Brain node's write lock and re-checks `status = ACTIVE` (ADR-022), so writes to one brain are serialized and none can commit into a brain that is being deleted.
+- Brain deletion runs in batches of 10,000 (`CALL { … } IN TRANSACTIONS`). The brain is first set to `DELETING` (under the Brain lock, so it waits for in-flight writes), which blocks all other operations with 409. The Brain node is deleted last, once a re-check finds no other node of the brain.
 
 ## 13. Error codes (shared by REST and MCP)
 

@@ -9,7 +9,7 @@ public final class SourceStatements {
     public static final String UPSERT = """
             MATCH (i:Ingestion {brainId: $brainId, id: $ingestionId})
             MERGE (s:SourceRef {brainId: $brainId, kind: $kind, locatorNorm: $locatorNorm})
-            ON CREATE SET s.id = $id, s.locator = $locator, s.createdAt = datetime()
+            ON CREATE SET s.id = $id, s.locator = $locator, s.createdAt = datetime(), s.ftScope = replace($brainId, '-', '_')
             SET s.lastSeenAt = datetime(), s.title = coalesce($title, s.title), s.summary = coalesce($summary, s.summary),
                 s.mediaType = coalesce($mediaType, s.mediaType),
                 s.clientContentHash = coalesce($clientContentHash, s.clientContentHash)

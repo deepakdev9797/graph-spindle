@@ -38,7 +38,19 @@ public final class Tokens {
         return "attr_" + predicate;
     }
 
-    /** Relation type token for removal paths where the vocabulary may have changed since the claim was written. */
+    /**
+     * The predicate of a <em>stored</em> claim, for projection and removal paths: the vocabulary may
+     * have changed since the claim was written (a predicate disabled or removed), so only the
+     * identifier rules apply. Never use this for request or model text.
+     */
+    public static String storedPredicate(String predicate) {
+        if (!identifier(predicate)) {
+            throw new IllegalArgumentException("stored predicate is not a plain identifier");
+        }
+        return predicate;
+    }
+
+    /** A plain identifier that is not a system label or relationship type. */
     public static boolean identifier(String token) {
         if (token == null || token.isEmpty() || token.length() > 40 || SYSTEM.contains(token)
                 || token.startsWith("_")) {

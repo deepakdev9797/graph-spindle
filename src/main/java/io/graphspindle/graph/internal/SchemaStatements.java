@@ -37,13 +37,18 @@ public final class SchemaStatements {
             "CREATE INDEX ingestion_brain_time IF NOT EXISTS FOR (i:Ingestion) ON (i.brainId, i.receivedAt)",
             "CREATE INDEX conflict_brain_status IF NOT EXISTS FOR (x:Conflict) ON (x.brainId, x.status)");
 
-    /** Fulltext indexes use the no-stop-words analyzer so names such as "The Who" or "It" stay searchable. */
+    /**
+     * Fulltext indexes use the no-stop-words analyzer so names such as "The Who" or "It" stay searchable.
+     * Each also indexes {@code ftScope}: the brain id with {@code -} replaced by {@code _}, a single
+     * Lucene token, present only while the node is searchable (ACTIVE entity, ACTIVE claim, any source).
+     * Queries require it inside Lucene, so results never depend on other brains (ADR-022).
+     */
     public static final List<String> FULLTEXT = List.of(
-            "CREATE FULLTEXT INDEX entity_text IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.description]"
+            "CREATE FULLTEXT INDEX entity_text IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.description, n.ftScope]"
                     + " OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}",
-            "CREATE FULLTEXT INDEX claim_text IF NOT EXISTS FOR (c:Claim) ON EACH [c.statement]"
+            "CREATE FULLTEXT INDEX claim_text IF NOT EXISTS FOR (c:Claim) ON EACH [c.statement, c.ftScope]"
                     + " OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}",
-            "CREATE FULLTEXT INDEX source_text IF NOT EXISTS FOR (s:SourceRef) ON EACH [s.title, s.summary]"
+            "CREATE FULLTEXT INDEX source_text IF NOT EXISTS FOR (s:SourceRef) ON EACH [s.title, s.summary, s.ftScope]"
                     + " OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}");
 
     public static final List<String> ALL = Stream.of(CONSTRAINTS, INDEXES, FULLTEXT).flatMap(List::stream).toList();

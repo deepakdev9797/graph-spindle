@@ -20,7 +20,8 @@ public final class ClaimStatements {
     public static final String CREATE_RELATION = """
             MATCH (s:Entity {brainId: $brainId, id: $subjectId}), (o:Entity {brainId: $brainId, id: $objectId})
             CREATE (c:Claim)
-            SET c = $props, c.brainId = $brainId, c.recordedAt = datetime(), c.statusChangedAt = datetime()
+            SET c = $props, c.brainId = $brainId, c.recordedAt = datetime(), c.statusChangedAt = datetime(),
+                c.ftScope = CASE WHEN $props.status = 'ACTIVE' THEN replace($brainId, '-', '_') ELSE null END
             CREATE (c)-[:SUBJECT {brainId: $brainId}]->(s)
             CREATE (c)-[:OBJECT {brainId: $brainId}]->(o)
             RETURN c
@@ -29,7 +30,8 @@ public final class ClaimStatements {
     public static final String CREATE_ATTRIBUTE = """
             MATCH (s:Entity {brainId: $brainId, id: $subjectId})
             CREATE (c:Claim)
-            SET c = $props, c.brainId = $brainId, c.recordedAt = datetime(), c.statusChangedAt = datetime()
+            SET c = $props, c.brainId = $brainId, c.recordedAt = datetime(), c.statusChangedAt = datetime(),
+                c.ftScope = CASE WHEN $props.status = 'ACTIVE' THEN replace($brainId, '-', '_') ELSE null END
             CREATE (c)-[:SUBJECT {brainId: $brainId}]->(s)
             RETURN c
             """;
@@ -46,6 +48,12 @@ public final class ClaimStatements {
             RETURN c
             """;
 
+    public static final String CONFIRM_MANUAL = """
+            MATCH (c:Claim {brainId: $brainId, id: $claimId})
+            SET c.origin = 'MANUAL', c.confidence = 1.0, c.confirmedAt = datetime(), c.confirmedBy = $principal
+            RETURN c
+            """;
+
     public static final String CITE = """
             MATCH (c:Claim {brainId: $brainId, id: $claimId}), (s:SourceRef {brainId: $brainId, id: $sourceId})
             MERGE (c)-[:CITES {brainId: $brainId}]->(s)
@@ -57,7 +65,7 @@ public final class ClaimStatements {
             MATCH (c:Claim {brainId: $brainId, id: $claimId})
             SET c.status = $status, c.statusChangedAt = datetime(), c.statusReason = $reason,
                 c.statusEvidence = $evidence, c.statusChangedByIngestionId = $ingestionId
-            REMOVE c.activeKey, c.slotKey
+            REMOVE c.activeKey, c.slotKey, c.ftScope
             RETURN c
             """;
 

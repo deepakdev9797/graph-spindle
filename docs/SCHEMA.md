@@ -582,15 +582,16 @@ CREATE FULLTEXT INDEX claim_text  IF NOT EXISTS FOR (c:Claim)  ON EACH [c.statem
 CREATE FULLTEXT INDEX source_text IF NOT EXISTS FOR (s:SourceRef) ON EACH [s.title, s.summary];
 ```
 
-Fulltext indexes are **not** brain-partitioned. Every fulltext query must filter in the same statement and oversample:
+Fulltext indexes are **not** brain-partitioned, so a limit applied before a `brainId` filter would let another brain's better matches starve this brain's results. Each fulltext index therefore also indexes `ftScope` (ADR-022): the brain id with `-` replaced by `_`, a single Lucene token, present only while the node is searchable (ACTIVE entity, ACTIVE claim, every SourceRef). The actual index definitions are `entity_text ON EACH [n.name, n.description, n.ftScope]`, `claim_text ON EACH [c.statement, c.ftScope]` and `source_text ON EACH [s.title, s.summary, s.ftScope]`, all with the `standard-no-stop-words` analyzer. Every query requires the scope token inside Lucene and still filters in the same statement:
 
 ```cypher
+// $luceneQuery = '+ftScope:dev +(name:(graph spindle graphspindle) description:(graph spindle graphspindle))'
 CALL db.index.fulltext.queryNodes('entity_text', $luceneQuery, {limit: $limit * 5}) YIELD node, score
 WHERE node.brainId = $brainId AND node.status = 'ACTIVE'
 RETURN node, score ORDER BY score DESC LIMIT $limit
 ```
 
-`$luceneQuery` is built by the engine from user text with every Lucene special character escaped, and it is never passed through raw. The `brainId` in the WHERE is mandatory. A repository test asserts that every Cypher string in the `graph` module contains `$brainId` (ApiKey and Brain-list statements are allowlisted). **VERIFY** the `queryNodes` option-map syntax on 2026.x.
+`$luceneQuery` is built by the engine (`graph.internal.Lucene.scoped`) from user text with every Lucene special character escaped, and it is never passed through raw; user terms are restricted to the text fields, so they never match `ftScope`. The `brainId` in the WHERE is mandatory (defence in depth). A repository test asserts that every Cypher string in the `graph` module contains `$brainId` (ApiKey and Brain-list statements are allowlisted). **VERIFY** the `queryNodes` option-map syntax on 2026.x.
 
 Isolation note: in Community there is no row-level security and no database-per-brain (multiple databases are Enterprise). Isolation is therefore enforced by the single `graph` module, `BrainScope`-typed parameters, the constraints above, and tests (ARCHITECTURE §8). DECISIONS ADR-004 records this.
 
@@ -851,7 +852,7 @@ Bounds, enforced by `VocabularyConfigValidator` when the config is saved:
 | Custom relation predicate | `^[A-Z][A-Z0-9_]{1,39}$`. Not a system relationship type or core predicate, ignoring case. At most 30. Source and target types must be enabled. |
 | Attribute name | `^[a-z][A-Za-z0-9]{1,39}$`, unique per entity type ignoring case, not a core predicate or custom relation name differing only in case, at most 10 per type. `valueType ∈ {STRING, ENUM, PARTIAL_DATE, BOOLEAN, NUMBER, URL}`. ENUM has at most 30 values, each matching `^[A-Z][A-Z0-9_]{0,39}$`. STRING `maxLength` ≤ 500. |
 | Disabling | `Person` cannot be disabled (the self entity), and system labels cannot be disabled. Disabling a type with existing entities is allowed: those entities become read-only for ingestion and remain retrievable. |
-| Removing a custom type or predicate | Rejected while active claims or entities use it (409), unless `force=true` from `BRAIN_ADMIN`, which archives them. |
+| Removing a custom type or predicate | Rejected while ACTIVE entities or ACTIVE/DISPUTED claims use it (409 `CONFLICT_STATE` with an `inUse` map), on both `PATCH /brains/{id}` (config) and `PUT /vocabulary`. `force=true` (archive them) is not in the MVP (ADR-022). |
 | Total | At most 40 entity types and 60 predicates enabled, which keeps the prompt within budget. |
 
 Changing the vocabulary bumps `Brain.configVersion`. The prompt cache key includes it.

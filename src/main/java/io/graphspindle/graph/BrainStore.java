@@ -78,13 +78,47 @@ public class BrainStore {
         });
     }
 
-    /** Sets the brain to DELETING (blocks other writes), then deletes all of its nodes in batches. */
+    /**
+     * Sets the brain to DELETING, then deletes all of its nodes in batches and the Brain node last.
+     * MARK_DELETING waits for the Brain lock held by any in-flight write ({@code BrainLock}), and no
+     * write can start afterwards, so the re-check loop normally ends after the first pass.
+     */
     public void delete(BrainScope scope) {
         boolean found = tx.write(scope, t -> !t.run(BrainStatements.MARK_DELETING).list().isEmpty());
         if (!found) {
             throw GraphSpindleException.brainNotFound(scope.brainId());
         }
-        tx.autoCommit(scope, BrainStatements.DELETE_ALL);
+        for (int pass = 0; pass < MAX_DELETE_PASSES; pass++) {
+            tx.autoCommit(scope, BrainStatements.DELETE_ALL);
+            boolean deleted = tx.write(scope, t -> !t.run(BrainStatements.DELETE_BRAIN_IF_EMPTY).list().isEmpty());
+            if (deleted) {
+                return;
+            }
+        }
+        throw new GraphSpindleException(ErrorCode.INTERNAL, "brain deletion did not converge; retry the delete",
+                java.util.Map.of(), null);
+    }
+
+    static final int MAX_DELETE_PASSES = 5;
+
+    /**
+     * Usage counts for the vocabulary-removal guard (SCHEMA §11): ACTIVE entities per type and
+     * ACTIVE or DISPUTED claims per predicate name. Only names in use are returned.
+     */
+    public java.util.Map<String, Long> usage(BrainScope scope, java.util.Collection<String> types,
+            java.util.Collection<String> predicates) {
+        return tx.read(scope, t -> {
+            java.util.Map<String, Long> used = new java.util.TreeMap<>();
+            if (!types.isEmpty()) {
+                t.run(BrainStatements.TYPES_IN_USE, P.of("types", List.copyOf(types))).list()
+                        .forEach(r -> used.put(r.get("name").asString(), r.get("n").asLong()));
+            }
+            if (!predicates.isEmpty()) {
+                t.run(BrainStatements.PREDICATES_IN_USE, P.of("predicates", List.copyOf(predicates))).list()
+                        .forEach(r -> used.merge(r.get("name").asString(), r.get("n").asLong(), Long::sum));
+            }
+            return used;
+        });
     }
 
     private static BrainRecord toRecord(Record r) {

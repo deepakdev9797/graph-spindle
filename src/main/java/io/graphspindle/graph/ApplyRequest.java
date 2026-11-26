@@ -10,7 +10,8 @@ import java.util.Objects;
 /**
  * Everything {@link GraphStore#apply} needs to write a validated plan in one transaction.
  *
- * @param ingestionId an Ingestion of this brain in status RECEIVED
+ * @param ingestionId an Ingestion of this brain in status RECEIVED; null only for MANUAL or SYSTEM writes,
+ *     which have no Ingestion record, no EVIDENCED_BY edges and no sources
  * @param principal who submitted it ({@code createdByPrincipal}; LATEST_WINS compares it)
  * @param origin origin of the knowledge written ({@code LLM} for ingestion)
  * @param sources the request's sources; plan source indexes refer to this list
@@ -23,13 +24,24 @@ public record ApplyRequest(String ingestionId, String principal, Origin origin, 
         IngestionCompletion completion) {
 
     public ApplyRequest {
-        Objects.requireNonNull(ingestionId, "ingestionId");
         Objects.requireNonNull(principal, "principal");
         Objects.requireNonNull(origin, "origin");
+        if (ingestionId == null && origin == Origin.LLM) {
+            throw new IllegalArgumentException("LLM knowledge needs an ingestion");
+        }
         sources = sources == null ? List.of() : List.copyOf(sources);
+        if (ingestionId == null && !sources.isEmpty()) {
+            throw new IllegalArgumentException("sources are recorded with an ingestion");
+        }
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(vocabulary, "vocabulary");
         policy = policy == null ? ConflictPolicy.EXPLICIT_CORRECTIONS_SUPERSEDE : policy;
         completion = completion == null ? IngestionCompletion.none(plan.summary()) : completion;
+    }
+
+    /** A user's write (SCHEMA §9.6): origin MANUAL, no ingestion, no sources. */
+    public static ApplyRequest manual(String principal, ValidatedPlan plan, BrainVocabulary vocabulary,
+            ConflictPolicy policy) {
+        return new ApplyRequest(null, principal, Origin.MANUAL, List.of(), plan, vocabulary, policy, true, null);
     }
 }

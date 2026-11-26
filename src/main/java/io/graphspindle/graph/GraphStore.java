@@ -12,7 +12,7 @@ import io.graphspindle.common.Polarity;
 import io.graphspindle.graph.ApplyResult.OpOutcome;
 import io.graphspindle.graph.ApplyResult.Outcome;
 import io.graphspindle.graph.internal.AliasStore;
-import io.graphspindle.graph.internal.BrainStatements;
+import io.graphspindle.graph.internal.BrainLock;
 import io.graphspindle.graph.internal.ClaimStore;
 import io.graphspindle.graph.internal.ConflictStore;
 import io.graphspindle.graph.internal.EntityStore;
@@ -159,18 +159,23 @@ public class GraphStore {
             }
             index = -1;
             applyConsequences();
+            if (ingestionId == null) {
+                return complete();
+            }
             mentions.forEach((entityId, surface) -> entities.mention(tx, entityId, ingestionId,
                     surface.isEmpty() ? null : surface));
             return complete();
         }
 
+        private boolean manual() {
+            return req.origin() == Origin.MANUAL;
+        }
+
+        /** Brain write lock first (serializes with brain deletion), then the RECEIVED ingestion, if any. */
         private void checkBrainAndIngestion() {
-            var brain = tx.run(BrainStatements.FIND).list();
-            if (brain.isEmpty()) {
-                throw GraphSpindleException.brainNotFound(tx.brainId());
-            }
-            if (!"ACTIVE".equals(brain.get(0).get("b").get("status").asString())) {
-                throw new GraphSpindleException(ErrorCode.CONFLICT_STATE, "brain is being deleted");
+            BrainLock.lockActive(tx);
+            if (ingestionId == null) {
+                return;
             }
             var rows = tx.run(IngestionStatements.LOCK_RECEIVED, P.of("id", ingestionId)).list();
             if (rows.isEmpty()) {
@@ -186,6 +191,9 @@ public class GraphStore {
                     .filter(o -> o.outcome() != Outcome.SKIPPED && o.outcome() != Outcome.PROTECTED_OVERRIDE)
                     .map(OpOutcome::opIndex).distinct().count();
             String status = applied > 0 ? "APPLIED" : "NO_CHANGES";
+            if (ingestionId == null) {
+                return new ApplyResult(null, status, applied, refs, outcomes, attempt);
+            }
             IngestionCompletion c = req.completion();
             tx.run(IngestionStatements.COMPLETE, P.of("id", ingestionId, "props", P.of("status", status, "summary",
                     c.summary(), "opsProposed", c.opsProposed(), "opsApplied", applied, "opsRejected", c.opsRejected(),
@@ -203,7 +211,7 @@ public class GraphStore {
         private String id(ResolvedEntity e) {
             return switch (e) {
                 case ResolvedEntity.Existing x -> resolvedExisting.computeIfAbsent(x.entityId(),
-                        k -> mention(entities.require(tx, k).id(), null));
+                        k -> mention(writable(entities.require(tx, k)).id(), null));
                 case ResolvedEntity.New x -> {
                     String id = idsByKey.get(x.canonicalKey());
                     if (id == null) {
@@ -212,6 +220,14 @@ public class GraphStore {
                     yield id;
                 }
             };
+        }
+
+        /** Manual writes refuse archived entities (they are hidden, not deleted; un-archive first). */
+        private EntityView writable(EntityView e) {
+            if (manual() && !"ACTIVE".equals(e.status())) {
+                throw new GraphSpindleException(ErrorCode.CONFLICT_STATE, "entity is " + e.status() + ": " + e.id());
+            }
+            return e;
         }
 
         private String mention(String entityId, String surfaceForm) {
@@ -231,6 +247,9 @@ public class GraphStore {
             idsByKey.put(e.canonicalKey(), m.id());
             refs.put(e.ref(), m.id());
             mention(m.id(), Normalizer.truncate(c.name(), 200));
+            if (manual() && m.created() && c.description() != null) {
+                entities.updateDescription(tx, m.id(), c.description(), true);
+            }
             outcome(m.created() ? Outcome.ENTITY_CREATED : Outcome.ENTITY_MATCHED, m.id(), null, null);
             addAlias(m.id(), new AliasSpec(c.name(), c.normalizedName()));
             c.aliases().forEach(a -> addAlias(m.id(), a));
@@ -252,7 +271,8 @@ public class GraphStore {
                 outcome(Outcome.PROTECTED_OVERRIDE, entityId, null, conflictId);
                 return;
             }
-            entities.updateDescription(tx, entityId, c.description());
+            // a MANUAL description edit locks the description against LLM updates (SCHEMA §5.4)
+            entities.updateDescription(tx, entityId, c.description(), manual() || e.descriptionLocked());
             outcome(Outcome.ENTITY_UPDATED, entityId, null, null);
         }
 
@@ -282,10 +302,9 @@ public class GraphStore {
             ResolvedClaim.Keys keys = rc.keys(tx.brainId(), subjectId, objectId);
             Optional<ClaimView> same = claims.findByActiveKey(tx, keys.activeKey());
             if (same.isPresent()) {
-                ClaimView reinforced = claims.addEvidence(tx, same.get().id(), ingestionId, rc.evidence(),
-                        confidence(rc));
+                ClaimView reinforced = reinforce(same.get(), rc);
                 cite(reinforced.id(), rc);
-                projections.sync(tx, req.vocabulary(), reinforced);
+                projections.sync(tx, reinforced);
                 outcome(Outcome.CLAIM_REINFORCED, subjectId, reinforced.id(), null);
                 return reinforced;
             }
@@ -302,24 +321,42 @@ public class GraphStore {
                     "Contradicts an active claim: \"" + old.statement() + "\" vs \"" + rc.statement() + "\"");
         }
 
+        /**
+         * Adds this write's evidence to an existing claim. An ingestion adds an EVIDENCED_BY edge; a
+         * MANUAL assertion of the same fact confirms it: origin MANUAL and confidence 1.0, so the
+         * claim is protected from LLM corrections from then on (ADR-023).
+         */
+        private ClaimView reinforce(ClaimView claim, ResolvedClaim rc) {
+            if (ingestionId != null) {
+                return claims.addEvidence(tx, claim.id(), ingestionId, rc.evidence(), confidence(rc));
+            }
+            return manual() ? claims.confirmManual(tx, claim.id(), req.principal()) : claim;
+        }
+
         /** The ACTIVE claim occupying the same ONE slot, or the same triple with the opposite polarity. */
         private Optional<ClaimView> contradicted(ResolvedClaim rc, String subjectId, String objectId,
                 ResolvedClaim.Keys keys) {
+            return contradicted(rc, subjectId, objectId, keys, null);
+        }
+
+        /** As above, ignoring {@code ignoreId} (the claim that is about to be superseded). */
+        private Optional<ClaimView> contradicted(ResolvedClaim rc, String subjectId, String objectId,
+                ResolvedClaim.Keys keys, String ignoreId) {
             if (keys.slotKey().isPresent()) {
                 Optional<ClaimView> slot = claims.findBySlotKey(tx, keys.slotKey().get());
-                if (slot.isPresent()) {
+                if (slot.isPresent() && !slot.get().id().equals(ignoreId)) {
                     return slot;
                 }
             }
             Polarity opposite = rc.polarity() == Polarity.POSITIVE ? Polarity.NEGATIVE : Polarity.POSITIVE;
             String oppositeKey = ClaimKeys.activeKey(tx.brainId(), subjectId, rc.predicate(),
                     ClaimKeys.objectPart(rc.kind(), objectId, rc.valueType(), rc.valueNorm()), opposite);
-            return claims.findByActiveKey(tx, oppositeKey);
+            return claims.findByActiveKey(tx, oppositeKey).filter(c -> !c.id().equals(ignoreId));
         }
 
         private ClaimView createActive(ResolvedClaim rc, String subjectId, String objectId, ResolvedClaim.Keys keys) {
             ClaimView c = create(rc, subjectId, objectId, "ACTIVE", keys);
-            projections.sync(tx, req.vocabulary(), c);
+            projections.sync(tx, c);
             createdActive.add(c);
             outcome(Outcome.CLAIM_CREATED, subjectId, c.id(), null);
             return c;
@@ -327,6 +364,10 @@ public class GraphStore {
 
         private ClaimView disputed(ResolvedClaim rc, String subjectId, String objectId, ClaimView existing,
                 String kind, String description) {
+            Optional<ClaimView> repeated = repeatedDispute(rc, subjectId, objectId, existing, kind);
+            if (repeated.isPresent()) {
+                return repeated.get();
+            }
             ClaimView incoming = create(rc, subjectId, objectId, "DISPUTED", null);
             String conflictId = conflicts.create(tx, kind, description, ingestionId);
             if (existing != null) {
@@ -337,6 +378,29 @@ public class GraphStore {
             return incoming;
         }
 
+        /**
+         * A repeated identical contradiction (same triple and polarity against the same existing claim,
+         * conflict still OPEN) reinforces the DISPUTED claim of that conflict instead of creating
+         * another DISPUTED claim and conflict.
+         */
+        private Optional<ClaimView> repeatedDispute(ResolvedClaim rc, String subjectId, String objectId,
+                ClaimView existing, String kind) {
+            if (existing == null) {
+                return Optional.empty();
+            }
+            Optional<ConflictStore.Dispute> d = conflicts.openDispute(tx, kind, existing.id(), subjectId,
+                    rc.predicate(), rc.polarity().name(), objectId,
+                    rc.valueType() == null ? null : rc.valueType().name(), rc.valueNorm());
+            if (d.isEmpty()) {
+                return Optional.empty();
+            }
+            ClaimView claim = ingestionId == null ? d.get().claim()
+                    : claims.addEvidence(tx, d.get().claim().id(), ingestionId, rc.evidence(), confidence(rc));
+            cite(claim.id(), rc);
+            outcome(Outcome.DISPUTE_REINFORCED, subjectId, claim.id(), d.get().conflictId());
+            return Optional.of(claim);
+        }
+
         private ClaimView create(ResolvedClaim rc, String subjectId, String objectId, String status,
                 ResolvedClaim.Keys keys) {
             if (rc.kind() == ClaimKind.RELATION) {
@@ -344,7 +408,7 @@ public class GraphStore {
             } else {
                 io.graphspindle.graph.internal.Tokens.attributeProperty(req.vocabulary(), rc.predicate());
             }
-            boolean evidenced = rc.evidence() != null && !rc.evidence().isBlank();
+            boolean evidenced = ingestionId != null && rc.evidence() != null && !rc.evidence().isBlank();
             Map<String, Object> props = P.of("id", Ids.newId(), "kind", rc.kind().name(), "predicate", rc.predicate(),
                     "subjectId", subjectId, "objectId", objectId,
                     "valueType", rc.valueType() == null ? null : rc.valueType().name(), "value", rc.value(),
@@ -380,6 +444,10 @@ public class GraphStore {
             ClaimView target = claims.require(tx, c.claimId());
             ResolvedClaim replacement = c.replacement();
             if (!target.active()) {
+                if (manual()) {
+                    throw new GraphSpindleException(ErrorCode.CONFLICT_STATE,
+                            "only an ACTIVE claim can be superseded; claim is " + target.status());
+                }
                 // stale handle (changed since stage 2): treat the replacement as an ordinary assertion
                 assertClaim(replacement);
                 return;
@@ -393,8 +461,9 @@ public class GraphStore {
             if (!sameSubject) {
                 throw new IllegalArgumentException("replacement must keep subject and predicate");
             }
-            boolean explicitAllowed = c.explicitCorrection() && req.policy() != ConflictPolicy.ALWAYS_FLAG
-                    && (req.allowLlmSupersession() || req.origin() == Origin.MANUAL);
+            // a user's correction is always applied (SCHEMA §9.6); LLM corrections depend on policy
+            boolean explicitAllowed = manual() || c.explicitCorrection()
+                    && req.policy() != ConflictPolicy.ALWAYS_FLAG && req.allowLlmSupersession();
             boolean latestWins = req.policy() == ConflictPolicy.LATEST_WINS
                     && req.principal().equals(target.createdByPrincipal());
             if (explicitAllowed || latestWins) {
@@ -406,11 +475,31 @@ public class GraphStore {
                     "Correction not applied automatically: " + c.reason());
         }
 
-        /** Supersedes {@code old} (keys and projection removed), then asserts the replacement. */
+        /**
+         * Supersedes {@code old} (keys and projection removed), then asserts the replacement. If the
+         * replacement would itself be disputed by another ACTIVE claim (the opposite polarity of the
+         * same triple, or another claim in its slot), nothing is superseded: the slot must never end
+         * up empty. The replacement is stored DISPUTED against that blocking claim and {@code old}
+         * stays ACTIVE (ADR-022).
+         */
         private ClaimView supersedeWith(ClaimView old, ResolvedClaim replacement, String reason) {
+            String subjectId = id(replacement.subject());
+            String objectId = replacement.kind() == ClaimKind.RELATION ? id(replacement.object()) : null;
+            if (!subjectId.equals(objectId)) {
+                ResolvedClaim.Keys keys = replacement.keys(tx.brainId(), subjectId, objectId);
+                boolean identicalExists = claims.findByActiveKey(tx, keys.activeKey())
+                        .filter(c -> !c.id().equals(old.id())).isPresent();
+                Optional<ClaimView> blocker = identicalExists ? Optional.empty()
+                        : contradicted(replacement, subjectId, objectId, keys, old.id());
+                if (blocker.isPresent()) {
+                    return disputed(replacement, subjectId, objectId, blocker.get(), "CONTRADICTION",
+                            "Correction not applied: the replacement contradicts another active claim: \""
+                                    + blocker.get().statement() + "\"");
+                }
+            }
             ClaimView superseded = claims.leaveActive(tx, old.id(), "SUPERSEDED", Normalizer.truncate(reason, 300),
                     null, ingestionId);
-            projections.sync(tx, req.vocabulary(), superseded);
+            projections.sync(tx, superseded);
             if (replacement.polarity() == Polarity.NEGATIVE && replacement.validFrom() != null
                     && superseded.validTo() == null) {
                 claims.setValidTo(tx, old.id(), replacement.validFrom().value(), replacement.validFrom().sortKey());
@@ -430,12 +519,16 @@ public class GraphStore {
                 return;
             }
             if (!target.active() && !"DISPUTED".equals(target.status())) {
+                if (manual()) {
+                    throw new GraphSpindleException(ErrorCode.CONFLICT_STATE,
+                            "only an ACTIVE or DISPUTED claim can be retracted; claim is " + target.status());
+                }
                 outcome(Outcome.SKIPPED, target.subjectId(), target.id(), null);
                 return;
             }
             ClaimView retracted = claims.leaveActive(tx, target.id(), "RETRACTED", c.reason(), c.evidence(),
                     ingestionId);
-            projections.sync(tx, req.vocabulary(), retracted);
+            projections.sync(tx, retracted);
             outcome(Outcome.CLAIM_RETRACTED, target.subjectId(), target.id(), null);
         }
 
@@ -460,6 +553,13 @@ public class GraphStore {
 
         /** The protected claim is untouched; an incoming replacement (if any) is stored DISPUTED. */
         private void protectedClaim(ClaimView target, ResolvedClaim incoming, String description) {
+            if (incoming != null) {
+                String subjectId = id(incoming.subject());
+                String objectId = incoming.kind() == ClaimKind.RELATION ? id(incoming.object()) : null;
+                if (repeatedDispute(incoming, subjectId, objectId, target, "PROTECTED_OVERRIDE").isPresent()) {
+                    return;
+                }
+            }
             String conflictId = conflicts.create(tx, "PROTECTED_OVERRIDE", description, ingestionId);
             conflicts.involveClaim(tx, conflictId, target.id(), "EXISTING");
             String incomingId = null;
@@ -531,14 +631,14 @@ public class GraphStore {
                 current.ifPresent(old -> {
                     ClaimView s = claims.leaveActive(tx, old.id(), "SUPERSEDED", "replaced by another decision", null,
                             ingestionId);
-                    projections.sync(tx, req.vocabulary(), s);
+                    projections.sync(tx, s);
                     outcome(Outcome.CLAIM_SUPERSEDED, decisionId, old.id(), null);
                 });
                 props.put("activeKey", ClaimKeys.activeKey(tx.brainId(), decisionId, "status",
                         ClaimKeys.attributeObject(status.get().valueType(), "SUPERSEDED"), Polarity.POSITIVE));
                 props.put("slotKey", slot);
                 ClaimView created = claims.create(tx, props);
-                projections.sync(tx, req.vocabulary(), created);
+                projections.sync(tx, created);
                 current.ifPresent(old -> claims.supersedes(tx, created.id(), old.id(), "replaced by another decision"));
                 outcome(Outcome.CONSEQUENCE_APPLIED, decisionId, created.id(), null);
             }

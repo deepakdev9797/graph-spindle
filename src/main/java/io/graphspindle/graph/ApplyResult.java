@@ -6,6 +6,7 @@ import java.util.Map;
 /**
  * Outcome of {@link GraphStore#apply}.
  *
+ * @param ingestionId the ingestion applied, or null for a manual write
  * @param status the Ingestion status written: {@code APPLIED} or {@code NO_CHANGES}
  * @param opsApplied distinct operation indexes that changed the graph
  * @param refs local refs of the plan mapped to real entity ids
@@ -39,6 +40,8 @@ public record ApplyResult(String ingestionId, String status, int opsApplied, Map
         CLAIM_SUPERSEDED,
         CLAIM_RETRACTED,
         CONFLICT_OPENED,
+        /** A repeated identical contradiction added evidence to the DISPUTED claim of an OPEN conflict. */
+        DISPUTE_REINFORCED,
         PROTECTED_OVERRIDE,
         CONSEQUENCE_APPLIED,
         /** Nothing to do (already in the requested state, merged ids became a self-loop, duplicate proposal). */

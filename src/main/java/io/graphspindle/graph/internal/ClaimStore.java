@@ -62,6 +62,13 @@ public class ClaimStore {
         return Rows.claim(rows.get(0).get("c"));
     }
 
+    /** A MANUAL assertion of an existing fact: the claim becomes MANUAL (protected) with confidence 1.0. */
+    public ClaimView confirmManual(ScopedTx tx, String claimId, String principal) {
+        return tx.run(ClaimStatements.CONFIRM_MANUAL, P.of("claimId", claimId, "principal", principal)).list()
+                .stream().findFirst().map(r -> Rows.claim(r.get("c")))
+                .orElseThrow(() -> GraphSpindleException.notFound("claim", claimId));
+    }
+
     public void cite(ScopedTx tx, String claimId, String sourceId) {
         if (tx.run(ClaimStatements.CITE, P.of("claimId", claimId, "sourceId", sourceId)).list().isEmpty()) {
             throw GraphSpindleException.notFound("source", sourceId);

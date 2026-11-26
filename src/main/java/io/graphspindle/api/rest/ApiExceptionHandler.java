@@ -48,6 +48,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(500).body(problem(ErrorCode.INTERNAL, "internal error"));
     }
 
+    /** A body cut off by {@link RequestSizeLimitFilter} surfaces as an unreadable message: answer 413. */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            org.springframework.http.converter.HttpMessageNotReadableException ex, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof RequestSizeLimitFilter.BodyTooLargeException) {
+                ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONTENT_TOO_LARGE, t.getMessage());
+                pd.setType(type(ErrorCode.LIMIT_EXCEEDED));
+                pd.setProperty("code", ErrorCode.LIMIT_EXCEEDED.name());
+                return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(pd);
+            }
+        }
+        return super.handleHttpMessageNotReadable(ex, headers, status, request);
+    }
+
     /** Framework errors (unreadable body, bad parameter, 404 route...) also get a {@code code}. */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,

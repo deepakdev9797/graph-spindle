@@ -12,7 +12,8 @@ public final class EntityStatements {
             ON CREATE SET n.id = $id, n.type = $type, n.name = $name, n.normalizedName = $normalizedName,
                           n.description = $description, n.descriptionLocked = false, n.status = 'ACTIVE',
                           n.origin = $origin, n.createdAt = datetime(), n.updatedAt = datetime(), n.mentionCount = 0,
-                          n.createdByIngestionId = $ingestionId, n._new = true
+                          n.createdByIngestionId = $ingestionId, n.ftScope = replace($brainId, '-', '_'),
+                          n._new = true
             WITH n, n._new IS NOT NULL AS created
             REMOVE n._new
             SET n:$($type)
@@ -39,6 +40,7 @@ public final class EntityStatements {
     public static final String MARK_MERGED = """
             MATCH (l:Entity {brainId: $brainId, id: $loserId}), (s:Entity {brainId: $brainId, id: $survivorId})
             SET l.status = 'MERGED', l.mergedIntoId = s.id, l.updatedAt = datetime()
+            REMOVE l.ftScope
             MERGE (l)-[r:MERGED_INTO {brainId: $brainId}]->(s)
             ON CREATE SET r.at = datetime(), r.by = $by
             RETURN l.id AS id
@@ -46,7 +48,7 @@ public final class EntityStatements {
 
     public static final String UPDATE_DESCRIPTION = """
             MATCH (n:Entity {brainId: $brainId, id: $id})
-            SET n.description = $description, n.updatedAt = datetime()
+            SET n.description = $description, n.descriptionLocked = $locked, n.updatedAt = datetime()
             RETURN n.id AS id
             """;
 
@@ -62,7 +64,11 @@ public final class EntityStatements {
             RETURN isNew
             """;
 
-    /** Fulltext lookup; the index is not brain-partitioned, so filter in the same statement and oversample. */
+    /**
+     * Fulltext lookup. The index is shared by all brains, so {@code $query} must be built by
+     * {@link Lucene#scoped}: it requires the brain's {@code ftScope} token inside Lucene, so other
+     * brains can never starve this brain's results (QA M4 F3). The WHERE clause is defence in depth.
+     */
     public static final String FULLTEXT = """
             CALL db.index.fulltext.queryNodes('entity_text', $query, {limit: $oversample}) YIELD node, score
             WHERE node.brainId = $brainId AND node.status = 'ACTIVE'
