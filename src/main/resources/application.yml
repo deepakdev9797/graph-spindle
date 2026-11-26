@@ -19,6 +19,11 @@ spring:
       # duplicate keys are errors, not last-wins
       strict-duplicate-detection: true
 graphspindle:
+  vocabulary:
+    # optional operator file merged over classpath:vocabulary/core-v1.yml (ADR-025), e.g. file:/etc/graphspindle/vocabulary.yml
+    location: ${GRAPHSPINDLE_VOCABULARY_LOCATION:}
+    # false makes the vocabulary API read-only (403 on writes)
+    api-mutable: ${GRAPHSPINDLE_VOCABULARY_API_MUTABLE:true}
   api:
     # request body cap (413 LIMIT_EXCEEDED above it)
     max-request-bytes: ${GRAPHSPINDLE_MAX_REQUEST_BYTES:1048576}

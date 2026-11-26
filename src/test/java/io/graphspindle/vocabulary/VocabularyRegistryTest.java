@@ -16,8 +16,8 @@ class VocabularyRegistryTest {
         assertThat(core.profile()).isEqualTo("core-v1");
         assertThat(core.entityTypes()).hasSize(15);
         assertThat(core.relationPredicates()).hasSize(28);
-        assertThat(core.attributePredicates()).hasSize(20);
-        assertThat(core.predicateCount()).isEqualTo(41);
+        assertThat(core.attributePredicates()).hasSize(28);
+        assertThat(core.predicateCount()).isEqualTo(28 + 21);
         assertThat(registry.forBrain(null)).isSameAs(core);
     }
 

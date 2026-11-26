@@ -30,6 +30,17 @@ class RendererTest {
     }
 
     @Test
+    void promptRendersSynonymsCompactlyAndStaysWithinBudget() {
+        String text = prompt.render(registry.core());
+        assertThat(text).contains("- Person: A specific human being (aka human, individual, contact, colleague)")
+                .contains("aka developer, engineer")
+                .contains("MEMBER_OF: belongs to, or is employed by.").contains("aka works at, employed by")
+                .contains("- email on Person: email address.");
+        // ADR-025: the richer YAML defaults keep the vocabulary section compact
+        assertThat(text.length()).isLessThan(10_000);
+    }
+
+    @Test
     void promptNeverOffersEngineOnlyValues() {
         String text = prompt.render(registry.core());
         String decisionStatus = text.lines().filter(l -> l.startsWith("- status on Decision")).findFirst().orElseThrow();
@@ -72,7 +83,7 @@ class RendererTest {
         JsonNode assertClaim = ops.get("items").get("oneOf").get(3);
         List<String> predicates = new ArrayList<>();
         assertClaim.get("properties").get("predicate").get("enum").forEach(p -> predicates.add(p.stringValue()));
-        assertThat(predicates).hasSize(28 + 13).contains("USES", "status", "homepage");
+        assertThat(predicates).hasSize(28 + 21).contains("USES", "status", "homepage", "email");
         assertThat(assertClaim.get("properties").get("evidence").get("maxLength").intValue()).isEqualTo(300);
         // value must admit the longest attribute literal (homepage URLs up to 2000), not 500
         assertThat(assertClaim.get("properties").get("value").get("maxLength").intValue())

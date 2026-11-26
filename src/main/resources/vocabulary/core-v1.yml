@@ -1,0 +1,467 @@
+# GraphSpindle core vocabulary profile core-v1 (SCHEMA §6, ADR-024, ADR-025).
+#
+# This file is reviewed like code. It is loaded and validated at startup; an invalid file stops the
+# application with a list of problems. Operators can override or extend it with an external file
+# (graphspindle.vocabulary.location), merged by name over this one.
+#
+# entityTypes[]:        name, description (required), group (type compatibility group, SCHEMA §6.2),
+#                       synonyms, examples, properties[]
+# properties[]:         name, description (required), type STRING|ENUM|PARTIAL_DATE|URL|NUMBER|BOOLEAN,
+#                       maxLength (STRING, URL), values (ENUM), engineOnlyValues (ENUM), min/max (NUMBER),
+#                       cardinality ONE|MANY (default ONE), required (advisory, default false), synonyms
+# relationshipTypes[]:  name, description (required), synonyms, sources, targets ([Any] = any enabled
+#                       type), targetSameAsSource, extraTargetsBySource, cardinality (default MANY),
+#                       confidenceCap
+#
+# Never add properties meant for secrets (passwords, tokens, keys). Personal contact data (email,
+# phone, birthday) is allowed; the secret scanner still rejects credential-like values.
+profile: core-v1
+
+classificationHints:
+  - text: "A programming language is a Technology with category = LANGUAGE."
+    requiresType: Technology
+  - text: "A license is a Standard with category = LICENSE."
+    requiresType: Standard
+  - text: "An Artifact exists only if it is a specific item. Otherwise use Concept."
+    requiresType: Artifact
+  - text: "A Decision must have a chosen option. Otherwise record a Task or a Goal."
+    requiresType: Decision
+  - text: "Do not create entities for pronouns, dates, numbers, generic nouns (\"the code\", \"a database\"), or one-off conversational items."
+
+entityTypes:
+  - name: Person
+    description: A specific human being
+    group: ACTOR
+    synonyms: [human, individual, contact, colleague]
+    examples: ["Alice Chen", "the speaker (\"I\")"]
+    properties:
+      - name: role
+        type: STRING
+        maxLength: 100
+        description: job or function, e.g. "backend engineer"
+        synonyms: [developer, engineer, employee, manager, occupation, profession, job]
+      - name: title
+        type: STRING
+        maxLength: 100
+        description: formal job title or honorific, e.g. "VP Engineering", "Dr."
+      - name: email
+        type: STRING
+        maxLength: 254
+        description: email address
+      - name: phone
+        type: STRING
+        maxLength: 40
+        description: phone number
+      - name: location
+        type: STRING
+        maxLength: 200
+        description: where it is based or takes place, as free text (LOCATED_IN for a known Place)
+      - name: birthday
+        type: PARTIAL_DATE
+        description: date of birth
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Agent
+    description: A specific software agent, bot or robot that acts
+    group: ACTOR
+    synonyms: [bot, assistant, robot]
+    examples: ["Claude Code", "warehouse robot R2"]
+    properties:
+      - name: role
+        type: STRING
+        maxLength: 100
+        description: job or function, e.g. "backend engineer"
+        synonyms: [developer, engineer, employee, manager, occupation, profession, job]
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Organization
+    description: A company, team, community, institution or group
+    synonyms: [company, team, business, institution, community]
+    examples: ["Acme Corp", "Apache Software Foundation"]
+    properties:
+      - name: category
+        type: ENUM
+        values: [COMPANY, TEAM, COMMUNITY, INSTITUTION, GOVERNMENT, OTHER]
+        description: kind of organization
+      - name: homepage
+        type: URL
+        maxLength: 2000
+        description: home page URL (stored only, never fetched)
+        synonyms: [website, url]
+      - name: industry
+        type: STRING
+        maxLength: 100
+        description: industry or sector, e.g. "logistics"
+      - name: location
+        type: STRING
+        maxLength: 200
+        description: where it is based or takes place, as free text (LOCATED_IN for a known Place)
+      - name: foundedOn
+        type: PARTIAL_DATE
+        description: date it was founded
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Project
+    description: A named, bounded effort with a goal (software or not)
+    group: WORK
+    synonyms: [initiative, program, effort]
+    examples: ["GraphSpindle", "kitchen renovation"]
+    properties:
+      - name: status
+        type: ENUM
+        values: [PLANNED, ACTIVE, PAUSED, COMPLETED, ABANDONED]
+        description: lifecycle status of the project
+      - name: homepage
+        type: URL
+        maxLength: 2000
+        description: home page URL (stored only, never fetched)
+        synonyms: [website, url]
+      - name: startDate
+        type: PARTIAL_DATE
+        description: start date
+      - name: endDate
+        type: PARTIAL_DATE
+        description: end date
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Technology
+    description: A language, framework, library, database, tool, platform or service
+    group: TECHNICAL
+    synonyms: [tool, framework, library, language, platform]
+    examples: ["Java", "Neo4j", "Spring AI"]
+    properties:
+      - name: category
+        type: ENUM
+        values: [LANGUAGE, FRAMEWORK, LIBRARY, DATABASE, TOOL, PLATFORM, SERVICE, MODEL, OTHER]
+        description: kind of technology
+      - name: version
+        type: STRING
+        maxLength: 50
+        description: version identifier
+      - name: homepage
+        type: URL
+        maxLength: 2000
+        description: home page URL (stored only, never fetched)
+        synonyms: [website, url]
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Standard
+    description: A license, specification, protocol, format or regulation
+    group: TECHNICAL
+    synonyms: [license, specification, protocol, regulation]
+    examples: ["Apache License 2.0", "MCP", "GDPR"]
+    properties:
+      - name: category
+        type: ENUM
+        values: [LICENSE, SPECIFICATION, PROTOCOL, FORMAT, REGULATION, OTHER]
+        description: kind of standard
+      - name: version
+        type: STRING
+        maxLength: 50
+        description: version identifier
+      - name: homepage
+        type: URL
+        maxLength: 2000
+        description: home page URL (stored only, never fetched)
+        synonyms: [website, url]
+
+  - name: Artifact
+    description: "A concrete work product: repository, document, dataset, model, design"
+    group: WORK
+    synonyms: [document, repository, dataset, file, report]
+    examples: ["graph-spindle repo", "Q3 report"]
+    properties:
+      - name: category
+        type: ENUM
+        values: [REPOSITORY, DOCUMENT, DATASET, MODEL, DESIGN, MEDIA, OTHER]
+        description: kind of artifact
+      - name: version
+        type: STRING
+        maxLength: 50
+        description: version identifier
+      - name: homepage
+        type: URL
+        maxLength: 2000
+        description: home page URL (stored only, never fetched)
+        synonyms: [website, url]
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Concept
+    description: An abstract idea, topic, method or field
+    group: TECHNICAL
+    synonyms: [idea, topic, subject, method, field]
+    examples: ["knowledge graph", "entity resolution"]
+    properties:
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Decision
+    description: A choice that was made or proposed, phrased as "Use X for Y"
+    synonyms: [choice, resolution, ruling]
+    examples: ["Use Apache 2.0 for GraphSpindle"]
+    properties:
+      - name: status
+        type: ENUM
+        values: [PROPOSED, ACCEPTED, REVERSED, SUPERSEDED]
+        engineOnlyValues: [SUPERSEDED]
+        description: status of the decision
+      - name: rationale
+        type: STRING
+        maxLength: 500
+        description: why the decision was made
+      - name: decidedOn
+        type: PARTIAL_DATE
+        description: date the decision was made
+
+  - name: Task
+    description: A concrete piece of work to be done
+    group: OBJECTIVE
+    synonyms: [todo, ticket, issue, chore, action item]
+    examples: ["write Neo4j integration tests"]
+    properties:
+      - name: status
+        type: ENUM
+        values: [TODO, IN_PROGRESS, BLOCKED, DONE, CANCELLED]
+        description: status of the task
+      - name: dueDate
+        type: PARTIAL_DATE
+        description: date the work is due
+      - name: priority
+        type: ENUM
+        values: [LOW, MEDIUM, HIGH, CRITICAL]
+        description: priority
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Goal
+    description: A desired outcome or objective
+    group: OBJECTIVE
+    synonyms: [objective, target, outcome, milestone]
+    examples: ["ship MVP by March"]
+    properties:
+      - name: status
+        type: ENUM
+        values: [OPEN, ACHIEVED, ABANDONED]
+        description: status of the goal
+      - name: dueDate
+        type: PARTIAL_DATE
+        description: date the work is due
+      - name: priority
+        type: ENUM
+        values: [LOW, MEDIUM, HIGH, CRITICAL]
+        description: priority
+
+  - name: Event
+    description: Something that happened or will happen at a time
+    synonyms: [meeting, appointment, occasion, release]
+    examples: ["v0.1 release", "design review 2026-11-20"]
+    properties:
+      - name: startDate
+        type: PARTIAL_DATE
+        description: start date
+      - name: endDate
+        type: PARTIAL_DATE
+        description: end date
+      - name: location
+        type: STRING
+        maxLength: 200
+        description: where it is based or takes place, as free text (LOCATED_IN for a known Place)
+      - name: notes
+        type: STRING
+        maxLength: 500
+        description: short durable notes worth remembering
+
+  - name: Place
+    description: A geographic or physical location
+    synonyms: [location, city, country, site, address]
+    examples: ["Berlin", "office lab 3"]
+    properties:
+      - name: category
+        type: ENUM
+        values: [COUNTRY, REGION, CITY, SITE, ROOM, VIRTUAL, OTHER]
+        description: kind of place
+
+  - name: Preference
+    description: A stated, durable like, dislike or working preference of a person or agent
+    synonyms: [like, dislike, habit]
+    examples: ["prefers concise answers"]
+    properties:
+      - name: strength
+        type: ENUM
+        values: [WEAK, MODERATE, STRONG]
+        description: how strongly the preference is held
+      - name: detail
+        type: STRING
+        maxLength: 300
+        description: additional detail
+
+  - name: Skill
+    description: A capability or expertise a person or agent has
+    group: TECHNICAL
+    synonyms: [expertise, capability, competence]
+    examples: ["Cypher", "technical writing"]
+    properties:
+      - name: detail
+        type: STRING
+        maxLength: 300
+        description: additional detail
+
+relationshipTypes:
+  - name: WORKS_ON
+    description: is actively working on
+    synonyms: [contributes to]
+    sources: [Person, Agent, Organization]
+    targets: [Project, Task, Goal, Artifact]
+  - name: MEMBER_OF
+    description: belongs to, or is employed by
+    synonyms: [works at, employed by, part of team]
+    sources: [Person, Agent, Organization]
+    targets: [Organization, Project]
+  - name: CREATED
+    description: authored, founded or built
+    synonyms: [authored, founded, built]
+    sources: [Person, Agent, Organization]
+    targets: [Project, Technology, Standard, Artifact, Concept]
+  - name: MAINTAINS
+    description: owns or maintains
+    synonyms: [owns]
+    sources: [Person, Agent, Organization]
+    targets: [Project, Technology, Artifact]
+  - name: USES
+    description: uses as a component or tool
+    synonyms: [built with, relies on]
+    sources: [Project, Artifact, Technology, Person, Agent, Organization, Task]
+    targets: [Technology, Standard, Artifact]
+  - name: WRITTEN_IN
+    description: implemented in a language
+    sources: [Project, Artifact, Technology]
+    targets: [Technology]
+  - name: DEPENDS_ON
+    description: requires to function or proceed
+    synonyms: [requires]
+    sources: [Project, Artifact, Technology, Task, Goal]
+    targets: [Project, Artifact, Technology, Task, Goal]
+  - name: PART_OF
+    description: is a component or sub-part of
+    synonyms: [component of, belongs to]
+    sources: [Project, Artifact, Technology, Organization, Task, Goal, Event, Place, Concept]
+    targets: []
+    targetSameAsSource: true
+    extraTargetsBySource:
+      Task: [Project]
+      Artifact: [Project]
+  - name: LICENSED_UNDER
+    description: distributed under the license
+    sources: [Project, Artifact, Technology]
+    targets: [Standard]
+    cardinality: ONE
+  - name: IMPLEMENTS
+    description: implements the spec or idea
+    sources: [Project, Artifact, Technology]
+    targets: [Standard, Concept]
+  - name: ALTERNATIVE_TO
+    description: can substitute for
+    synonyms: [competes with]
+    sources: [Technology, Standard, Project]
+    targets: [Technology, Standard, Project]
+  - name: IS_A
+    description: is a kind of
+    synonyms: [kind of, type of]
+    sources: [Technology, Standard, Concept, Skill]
+    targets: [Concept]
+  - name: ABOUT
+    description: has the topic or subject
+    synonyms: [concerns, regarding]
+    sources: [Artifact, Event, Decision, Goal, Task]
+    targets: [Any]
+  - name: DECIDED
+    description: made or approved the decision
+    sources: [Person, Agent, Organization]
+    targets: [Decision]
+  - name: APPLIES_TO
+    description: is scoped to
+    sources: [Decision, Preference]
+    targets: [Project, Organization, Artifact, Task, Goal, Person, Agent]
+  - name: CHOOSES
+    description: the selected option
+    sources: [Decision]
+    targets: [Technology, Standard, Artifact, Concept, Organization, Place, Person, Agent, Project]
+    cardinality: ONE
+  - name: REJECTS
+    description: a considered and rejected option
+    sources: [Decision]
+    targets: [Technology, Standard, Artifact, Concept, Organization, Place, Person, Agent, Project]
+  - name: REPLACES
+    description: the new decision replaces the old one
+    sources: [Decision]
+    targets: [Decision]
+    cardinality: ONE
+  - name: ASSIGNED_TO
+    description: is to be done by
+    synonyms: [owned by]
+    sources: [Task]
+    targets: [Person, Agent]
+  - name: BLOCKS
+    description: prevents progress on
+    sources: [Task]
+    targets: [Task, Goal]
+  - name: CONTRIBUTES_TO
+    description: advances the goal
+    sources: [Project, Task, Decision, Event]
+    targets: [Goal]
+  - name: PARTICIPATED_IN
+    description: took part in
+    synonyms: [attended]
+    sources: [Person, Agent, Organization]
+    targets: [Event]
+  - name: LOCATED_IN
+    description: located in or took place at
+    synonyms: [based in, lives in]
+    sources: [Person, Organization, Event, Place, Artifact]
+    targets: [Place]
+    cardinality: ONE
+  - name: KNOWS
+    description: knows or works with
+    synonyms: [works with, friend of]
+    sources: [Person, Agent]
+    targets: [Person, Agent]
+  - name: HAS_PREFERENCE
+    description: holds the preference
+    sources: [Person, Agent]
+    targets: [Preference]
+  - name: HAS_SKILL
+    description: is skilled in
+    synonyms: [knows how to, expert in]
+    sources: [Person, Agent]
+    targets: [Skill, Technology]
+  - name: INTERESTED_IN
+    description: is interested in
+    sources: [Person, Agent, Organization]
+    targets: [Any]
+  - name: RELATED_TO
+    description: fallback only, when nothing more specific fits
+    sources: [Any]
+    targets: [Any]
+    confidenceCap: 0.6

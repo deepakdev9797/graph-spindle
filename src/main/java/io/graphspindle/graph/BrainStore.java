@@ -121,6 +121,23 @@ public class BrainStore {
         });
     }
 
+    /**
+     * ACTIVE or DISPUTED attribute claims per {@code Type.predicate} for the given pairs (maps with
+     * {@code type} and {@code predicate}). Only pairs in use are returned.
+     */
+    public java.util.Map<String, Long> attributeUsage(BrainScope scope,
+            java.util.Collection<java.util.Map<String, String>> pairs) {
+        if (pairs.isEmpty()) {
+            return java.util.Map.of();
+        }
+        return tx.read(scope, t -> {
+            java.util.Map<String, Long> used = new java.util.TreeMap<>();
+            t.run(BrainStatements.ATTRIBUTES_ON_TYPES_IN_USE, P.of("pairs", List.copyOf(pairs))).list()
+                    .forEach(r -> used.put(r.get("name").asString(), r.get("n").asLong()));
+            return used;
+        });
+    }
+
     private static BrainRecord toRecord(Record r) {
         Value b = r.get("b");
         return new BrainRecord(b.get("id").asString(), b.get("name").asString(), b.get("description").asString(null),

@@ -1,8 +1,6 @@
 package io.graphspindle.vocabulary;
 
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * Renders the vocabulary section of the LLM prompts from a {@link BrainVocabulary}. Deterministic:
@@ -19,6 +17,7 @@ public final class PromptVocabularyRenderer {
         sb.append("Entity types:\n");
         for (EntityTypeDef t : vocabulary.entityTypes()) {
             sb.append("- ").append(t.name()).append(": ").append(t.description());
+            aka(sb, t.synonyms());
             if (!t.examples().isEmpty()) {
                 sb.append(". Examples: ").append(String.join("; ", t.examples()));
             }
@@ -26,10 +25,8 @@ public final class PromptVocabularyRenderer {
         }
 
         sb.append("\nClassification hints:\n");
-        for (String hint : CoreVocabulary.CLASSIFICATION_HINTS) {
-            if (appliesTo(hint, vocabulary)) {
-                sb.append("- ").append(hint).append('\n');
-            }
+        for (ClassificationHint hint : vocabulary.classificationHints()) {
+            sb.append("- ").append(hint.text()).append('\n');
         }
 
         sb.append("\nRelation predicates (assert_claim with \"object\"; subject types -> object types; cardinality):\n");
@@ -39,6 +36,9 @@ public final class PromptVocabularyRenderer {
                     .append("; ").append(p.cardinality());
             if (p.confidenceCap() != null) {
                 sb.append("; confidence capped at ").append(p.confidenceCap());
+            }
+            if (!p.synonyms().isEmpty()) {
+                sb.append("; aka ").append(String.join(", ", p.synonyms()));
             }
             sb.append('\n');
         }
@@ -50,6 +50,12 @@ public final class PromptVocabularyRenderer {
             if (a.cardinality() == Cardinality.MANY) {
                 sb.append("; MANY");
             }
+            if (a.required()) {
+                sb.append("; record when known");
+            }
+            if (!a.synonyms().isEmpty()) {
+                sb.append("; aka ").append(String.join(", ", a.synonyms()));
+            }
             sb.append('\n');
         }
 
@@ -60,18 +66,10 @@ public final class PromptVocabularyRenderer {
         return sb.toString();
     }
 
-    private static boolean appliesTo(String hint, BrainVocabulary v) {
-        Map<String, String> requires = new TreeMap<>(Map.of(
-                "A programming language", "Technology",
-                "A license", "Standard",
-                "An Artifact", "Artifact",
-                "A Decision", "Decision"));
-        for (Map.Entry<String, String> e : requires.entrySet()) {
-            if (hint.startsWith(e.getKey())) {
-                return v.isEnabledType(e.getValue());
-            }
+    private static void aka(StringBuilder sb, List<String> synonyms) {
+        if (!synonyms.isEmpty()) {
+            sb.append(" (aka ").append(String.join(", ", synonyms)).append(')');
         }
-        return true;
     }
 
     static String describeValue(AttributePredicateDef a) {

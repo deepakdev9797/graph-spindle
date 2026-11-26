@@ -17,14 +17,16 @@ import java.util.Set;
  */
 public final class BrainVocabulary {
 
+    private final CoreProfile core;
     private final String profile;
     private final Map<String, EntityTypeDef> types;
     private final Map<String, RelationPredicateDef> relations;
     private final List<AttributePredicateDef> attributes;
     private final Map<String, List<AttributePredicateDef>> attributesByName;
 
-    BrainVocabulary(String profile, List<EntityTypeDef> types, List<RelationPredicateDef> relations,
+    BrainVocabulary(CoreProfile core, String profile, List<EntityTypeDef> types, List<RelationPredicateDef> relations,
             List<AttributePredicateDef> attributes) {
+        this.core = Objects.requireNonNull(core);
         this.profile = Objects.requireNonNull(profile);
         LinkedHashMap<String, EntityTypeDef> t = new LinkedHashMap<>();
         types.forEach(d -> t.put(d.name(), d));
@@ -116,9 +118,24 @@ public final class BrainVocabulary {
         return relations.size() + attributesByName.size();
     }
 
-    private static String groupOfCore(String type) {
-        return CoreVocabulary.ENTITY_TYPES.stream().filter(t -> t.name().equals(type)).findFirst()
-                .map(EntityTypeDef::compatibilityGroup).orElse(null);
+    private String groupOfCore(String type) {
+        return core.groupOf(type);
+    }
+
+    /** The core profile this vocabulary was resolved against. */
+    public CoreProfile core() {
+        return core;
+    }
+
+    /** Classification hints whose required type is enabled. */
+    public List<ClassificationHint> classificationHints() {
+        return core.classificationHints().stream()
+                .filter(h -> h.requiresType() == null || isEnabledType(h.requiresType())).toList();
+    }
+
+    /** The enabled attribute definitions that apply to the entity type, in definition order. */
+    public List<AttributePredicateDef> attributesOf(String entityType) {
+        return attributes.stream().filter(a -> a.entityTypes().contains(entityType)).toList();
     }
 
     @Override

@@ -89,4 +89,16 @@ public final class BrainStatements {
             WHERE c.predicate IN $predicates AND c.status IN ['ACTIVE', 'DISPUTED']
             RETURN c.predicate AS name, count(c) AS n
             """;
+
+    /**
+     * ACTIVE or DISPUTED attribute claims per (subject type, predicate) pair, for the guard against
+     * removing or narrowing a property of one type while it is in use (ADR-025).
+     */
+    public static final String ATTRIBUTES_ON_TYPES_IN_USE = """
+            UNWIND $pairs AS p
+            MATCH (c:Claim {brainId: $brainId, kind: 'ATTRIBUTE', predicate: p.predicate})
+                  -[:SUBJECT]->(e:Entity {brainId: $brainId, type: p.type})
+            WHERE c.status IN ['ACTIVE', 'DISPUTED']
+            RETURN p.type + '.' + p.predicate AS name, count(c) AS n
+            """;
 }

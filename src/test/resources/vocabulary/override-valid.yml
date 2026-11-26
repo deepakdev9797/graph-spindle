@@ -1,0 +1,32 @@
+# test override: adds a type, replaces Place, drops Preference and HAS_PREFERENCE
+profile: core-v1
+removeEntityTypes: [Preference]
+removeRelationshipTypes: [HAS_PREFERENCE]
+entityTypes:
+  - name: Place
+    description: A physical location
+    synonyms: [spot]
+    properties:
+      - name: address
+        type: STRING
+        maxLength: 300
+        description: postal address
+  - name: Vehicle
+    description: A specific car, bike or other vehicle
+    synonyms: [car]
+    examples: ["the blue van"]
+    properties:
+      - name: plate
+        type: STRING
+        maxLength: 20
+        description: licence plate
+relationshipTypes:
+  - name: DRIVES
+    description: regularly drives
+    sources: [Person]
+    targets: [Vehicle]
+  # APPLIES_TO referenced Preference, so it must be redefined without it
+  - name: APPLIES_TO
+    description: is scoped to
+    sources: [Decision]
+    targets: [Project, Organization, Artifact, Task, Goal, Person, Agent]

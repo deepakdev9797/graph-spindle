@@ -6,12 +6,15 @@ import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Normalizer;
 import io.graphspindle.graph.BrainRecord;
 import io.graphspindle.graph.BrainStore;
+import io.graphspindle.vocabulary.AttributePredicateDef;
 import io.graphspindle.vocabulary.BrainVocabulary;
+import io.graphspindle.vocabulary.Cardinality;
 import io.graphspindle.vocabulary.InvalidVocabularyConfigException;
 import io.graphspindle.vocabulary.VocabularyConfig;
 import io.graphspindle.vocabulary.VocabularyRegistry;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
@@ -30,12 +33,21 @@ public class BrainService {
 
     private final BrainStore store;
     private final VocabularyRegistry vocabularies;
+    private final boolean vocabularyApiMutable;
     private final JsonMapper writer;
     private final JsonMapper reader;
 
+    /** A service with the bundled core vocabulary and a mutable vocabulary API (tests). */
     public BrainService(BrainStore store, JsonMapper jsonMapper) {
+        this(store, jsonMapper, new VocabularyRegistry(), true);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public BrainService(BrainStore store, JsonMapper jsonMapper, VocabularyRegistry vocabularies,
+            @Value("${graphspindle.vocabulary.api-mutable:true}") boolean vocabularyApiMutable) {
         this.store = store;
-        this.vocabularies = new VocabularyRegistry();
+        this.vocabularies = vocabularies;
+        this.vocabularyApiMutable = vocabularyApiMutable;
         this.writer = jsonMapper;
         // stored configs are read leniently so that removed fields never make a brain unreadable
         this.reader = jsonMapper.rebuild().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
@@ -47,6 +59,9 @@ public class BrainService {
         String description = optional("description", request.description(), MAX_DESCRIPTION);
         String owner = optional("ownerName", request.ownerName(), MAX_OWNER_NAME);
         BrainConfig config = validated(request.config() == null ? BrainConfig.defaults() : request.config());
+        if (changesVocabulary(VocabularyConfig.core(), config.vocabulary())) {
+            requireVocabularyMutable();
+        }
         BrainRecord r = store.create(scope, name, description, serialize(config), owner == null ? "Me" : owner);
         return toBrain(r);
     }
@@ -76,7 +91,12 @@ public class BrainService {
             return toBrain(store.update(scope, expectedVersion, name, description != null, description, null));
         }
         BrainConfig config = validated(update.config());
-        return writeConfig(scope, expectedVersion, current -> config, name, description);
+        return writeConfig(scope, expectedVersion, current -> {
+            if (changesVocabulary(current.config().vocabulary(), config.vocabulary())) {
+                requireVocabularyMutable();
+            }
+            return config;
+        }, name, description);
     }
 
     /** Attempts for a config write without If-Match that lost a race with a concurrent update. */
@@ -123,13 +143,40 @@ public class BrainService {
                 .forEach(p -> predicates.add(p.name()));
         old.attributePredicates().stream().filter(a -> !a.core() && !now.hasAttributeName(a.name()))
                 .forEach(a -> predicates.add(a.name()));
-        if (types.isEmpty() && predicates.isEmpty()) {
+        // custom relation predicates kept but narrowed (fewer source/target types, MANY -> ONE), ADR-025
+        Map<String, VocabularyConfig.CustomRelationPredicate> afterRelations = new java.util.HashMap<>();
+        after.customRelationPredicates().forEach(r -> afterRelations.put(r.name(), r));
+        for (VocabularyConfig.CustomRelationPredicate r : before.customRelationPredicates()) {
+            VocabularyConfig.CustomRelationPredicate n = afterRelations.get(r.name());
+            if (n != null && (!n.sourceTypes().containsAll(r.sourceTypes())
+                    || !n.targetTypes().containsAll(r.targetTypes())
+                    || (r.cardinality() != Cardinality.ONE && n.cardinality() == Cardinality.ONE))) {
+                predicates.add(r.name());
+            }
+        }
+        // properties removed from one type or narrowed (other value type, fewer enum values, shorter,
+        // tighter range, MANY -> ONE) while that type stays enabled; disabling core ones stays allowed
+        java.util.Set<Map<String, String>> pairs = new java.util.LinkedHashSet<>();
+        for (AttributePredicateDef a : old.attributePredicates()) {
+            for (String type : a.entityTypes()) {
+                if (!now.isEnabledType(type)) {
+                    continue;
+                }
+                java.util.Optional<AttributePredicateDef> next = now.attribute(a.name(), type);
+                if (next.isEmpty() ? !a.core() : a.narrowedBy(next.get())) {
+                    pairs.add(Map.of("type", type, "predicate", a.name()));
+                }
+            }
+        }
+        if (types.isEmpty() && predicates.isEmpty() && pairs.isEmpty()) {
             return;
         }
-        Map<String, Long> inUse = store.usage(scope, types, predicates);
+        Map<String, Long> inUse = new java.util.TreeMap<>(store.usage(scope, types, predicates));
+        inUse.putAll(store.attributeUsage(scope, pairs));
         if (!inUse.isEmpty()) {
             throw new GraphSpindleException(ErrorCode.CONFLICT_STATE,
-                    "custom vocabulary still in use by active entities or claims: " + inUse.keySet(),
+                    "vocabulary still in use by active entities or claims, cannot remove or narrow: "
+                            + inUse.keySet(),
                     Map.of("inUse", inUse), null);
         }
     }
@@ -150,14 +197,49 @@ public class BrainService {
 
     /** Validates (SCHEMA §11) and stores a new vocabulary config; bumps {@code configVersion}. */
     public BrainVocabularyView updateVocabulary(String brainId, Long expectedVersion, VocabularyConfig vocabulary) {
+        requireVocabularyMutable();
         if (vocabulary == null) {
             throw GraphSpindleException.validation("vocabulary configuration is required");
         }
         BrainVocabulary resolved = resolve(vocabulary);
         BrainScope scope = BrainScope.of(find(brainId).id());
-        Brain updated = writeConfig(scope, expectedVersion, current -> validated(current.config()
-                .withVocabulary(vocabulary)), null, null);
+        Brain updated = writeConfig(scope, expectedVersion, current -> {
+            VocabularyGuardrails.checkNewNamesNotSimilar(vocabularies, current.config().vocabulary(), vocabulary);
+            return validated(current.config().withVocabulary(vocabulary));
+        }, null, null);
         return new BrainVocabularyView(updated, resolved);
+    }
+
+    /**
+     * Applies a change to the brain's vocabulary config with the same optimistic locking, validation
+     * and in-use guard as {@link #updateVocabulary}. The change function may throw to reject.
+     */
+    Brain mutateVocabulary(String brainId, Long expectedVersion,
+            java.util.function.UnaryOperator<VocabularyConfig> change) {
+        requireVocabularyMutable();
+        BrainScope scope = BrainScope.of(find(brainId).id());
+        return writeConfig(scope, expectedVersion, current -> validated(current.config()
+                .withVocabulary(change.apply(current.config().vocabulary()))), null, null);
+    }
+
+    VocabularyRegistry registry() {
+        return vocabularies;
+    }
+
+    /** {@code FORBIDDEN} when {@code graphspindle.vocabulary.api-mutable=false} (ADR-025). */
+    void requireVocabularyMutable() {
+        if (!vocabularyApiMutable) {
+            throw new GraphSpindleException(ErrorCode.FORBIDDEN, "the vocabulary is read-only "
+                    + "(graphspindle.vocabulary.api-mutable=false); change it in the YAML definition");
+        }
+    }
+
+    public boolean vocabularyApiMutable() {
+        return vocabularyApiMutable;
+    }
+
+    private static boolean changesVocabulary(VocabularyConfig before, VocabularyConfig after) {
+        return !before.normalized().equals(after.normalized());
     }
 
     /** The resolved vocabulary of a brain (for ingestion and knowledge services). */

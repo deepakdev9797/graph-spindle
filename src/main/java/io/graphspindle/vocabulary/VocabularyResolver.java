@@ -24,9 +24,13 @@ final class VocabularyResolver {
     }
 
     static BrainVocabulary resolve(VocabularyConfig config) {
+        return resolve(CoreVocabulary.DEFAULT, config);
+    }
+
+    static BrainVocabulary resolve(CoreProfile core, VocabularyConfig config) {
         Set<String> enabledCore = config.enabledEntityTypes() == null ? null : Set.copyOf(config.enabledEntityTypes());
         List<EntityTypeDef> types = new ArrayList<>();
-        for (EntityTypeDef t : CoreVocabulary.ENTITY_TYPES) {
+        for (EntityTypeDef t : core.entityTypes()) {
             if (enabledCore == null || enabledCore.contains(t.name())) {
                 types.add(t);
             }
@@ -34,7 +38,7 @@ final class VocabularyResolver {
         for (CustomEntityType c : config.customEntityTypes()) {
             if (c.name() != null && types.stream().noneMatch(t -> t.name().equals(c.name()))) {
                 types.add(new EntityTypeDef(c.name(), c.description() == null ? c.name() : c.description(),
-                        List.of(), c.compatibilityGroup(), false));
+                        c.synonyms(), c.examples(), c.compatibilityGroup(), false));
             }
         }
         Set<String> enabled = new LinkedHashSet<>();
@@ -43,7 +47,7 @@ final class VocabularyResolver {
         Map<String, PredicateOverride> overrides = config.predicateOverrides();
 
         List<RelationPredicateDef> relations = new ArrayList<>();
-        for (RelationPredicateDef p : CoreVocabulary.RELATION_PREDICATES) {
+        for (RelationPredicateDef p : core.relationPredicates()) {
             if (!disabled.contains(p.name())) {
                 addRelation(relations, override(p, overrides), enabled);
             }
@@ -52,14 +56,15 @@ final class VocabularyResolver {
             if (c.name() == null || relations.stream().anyMatch(r -> r.name().equals(c.name()))) {
                 continue;
             }
-            RelationPredicateDef def = RelationPredicateDef.simple(c.name(),
+            RelationPredicateDef def = new RelationPredicateDef(c.name(),
                     c.description() == null ? c.name() : c.description(), TypeSet.of(c.sourceTypes()),
-                    TypeSet.of(c.targetTypes()), c.cardinality() == null ? Cardinality.MANY : c.cardinality(), false);
+                    TypeSet.of(c.targetTypes()), false, Map.of(),
+                    c.cardinality() == null ? Cardinality.MANY : c.cardinality(), null, false, c.synonyms());
             addRelation(relations, override(def, overrides), enabled);
         }
 
         List<AttributePredicateDef> attributes = new ArrayList<>();
-        for (AttributePredicateDef a : CoreVocabulary.ATTRIBUTE_PREDICATES) {
+        for (AttributePredicateDef a : core.attributePredicates()) {
             if (!disabled.contains(a.name())) {
                 AttributePredicateDef restricted = override(a, overrides).restrictTo(enabled);
                 if (!restricted.entityTypes().isEmpty()) {
@@ -71,7 +76,8 @@ final class VocabularyResolver {
             for (CustomAttribute a : c.attributes()) {
                 if (a.name() != null && a.valueType() != null) {
                     attributes.add(override(custom(a.name(), Set.of(c.name()), a.valueType(), a.maxLength(),
-                            a.values(), a), overrides));
+                            a.values(), a.min(), a.max(), a.description(), a.cardinality(), a.required(),
+                            a.synonyms()), overrides));
                 }
             }
         }
@@ -80,14 +86,13 @@ final class VocabularyResolver {
                 continue;
             }
             AttributePredicateDef def = override(custom(a.name(), Set.copyOf(a.entityTypes()), a.valueType(),
-                    a.maxLength(), a.values(), null), overrides).restrictTo(enabled);
+                    a.maxLength(), a.values(), a.min(), a.max(), a.description(), a.cardinality(), a.required(),
+                    a.synonyms()), overrides).restrictTo(enabled);
             if (!def.entityTypes().isEmpty()) {
-                attributes.add(new AttributePredicateDef(def.name(), def.description(), def.entityTypes(),
-                        def.valueType(), def.enumValues(), def.maxLength(), a.min(), a.max(), def.cardinality(),
-                        Set.of(), false));
+                attributes.add(def);
             }
         }
-        return new BrainVocabulary(config.effectiveProfile(), types, relations, attributes);
+        return new BrainVocabulary(core, config.effectiveProfile(), types, relations, attributes);
     }
 
     private static void addRelation(List<RelationPredicateDef> out, RelationPredicateDef def, Set<String> enabled) {
@@ -108,16 +113,19 @@ final class VocabularyResolver {
     }
 
     private static AttributePredicateDef custom(String name, Set<String> types, ValueType valueType, Integer maxLength,
-            List<String> values, CustomAttribute inline) {
-        Integer max = maxLength;
-        if (max == null && valueType == ValueType.STRING) {
-            max = DEFAULT_STRING_MAX;
+            List<String> values, java.math.BigDecimal min, java.math.BigDecimal max, String description,
+            Cardinality cardinality, Boolean required, List<String> synonyms) {
+        Integer max2 = maxLength;
+        if (max2 == null && valueType == ValueType.STRING) {
+            max2 = DEFAULT_STRING_MAX;
         }
         if (valueType == ValueType.URL) {
-            max = max == null ? DEFAULT_URL_MAX : Math.min(max, DEFAULT_URL_MAX);
+            max2 = max2 == null ? DEFAULT_URL_MAX : Math.min(max2, DEFAULT_URL_MAX);
         }
-        return new AttributePredicateDef(name, "custom attribute " + name, types, valueType,
-                valueType == ValueType.ENUM ? values : List.of(), max, inline == null ? null : inline.min(),
-                inline == null ? null : inline.max(), Cardinality.ONE, Set.of(), false);
+        return new AttributePredicateDef(name, description == null || description.isBlank()
+                ? "custom attribute " + name : description.strip(), types, valueType,
+                valueType == ValueType.ENUM ? values : List.of(), max2, min, max,
+                cardinality == null ? Cardinality.ONE : cardinality, Set.of(), false, Boolean.TRUE.equals(required),
+                synonyms);
     }
 }

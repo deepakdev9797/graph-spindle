@@ -1,5 +1,6 @@
 package io.graphspindle.vocabulary;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -17,6 +18,7 @@ import java.util.TreeMap;
  * @param cardinality ONE or MANY per subject
  * @param confidenceCap maximum confidence for claims with this predicate, or null for none
  * @param core true when it comes from the core profile
+ * @param synonyms alternative names or phrasings (prompt and similarity guardrail, ADR-025)
  */
 public record RelationPredicateDef(
         String name,
@@ -27,7 +29,8 @@ public record RelationPredicateDef(
         Map<String, Set<String>> extraTargetsBySource,
         Cardinality cardinality,
         Double confidenceCap,
-        boolean core) {
+        boolean core,
+        List<String> synonyms) {
 
     public RelationPredicateDef {
         Objects.requireNonNull(name, "name");
@@ -40,6 +43,15 @@ public record RelationPredicateDef(
             extraTargetsBySource.forEach((k, v) -> extras.put(k, Set.copyOf(v)));
         }
         extraTargetsBySource = java.util.Collections.unmodifiableSortedMap(extras);
+        synonyms = List.copyOf(synonyms == null ? List.of() : synonyms);
+    }
+
+    /** A predicate without synonyms. */
+    public RelationPredicateDef(String name, String description, TypeSet sourceTypes, TypeSet targetTypes,
+            boolean targetSameAsSource, Map<String, Set<String>> extraTargetsBySource, Cardinality cardinality,
+            Double confidenceCap, boolean core) {
+        this(name, description, sourceTypes, targetTypes, targetSameAsSource, extraTargetsBySource, cardinality,
+                confidenceCap, core, List.of());
     }
 
     /** A simple predicate with fixed source and target sets. */
@@ -64,7 +76,7 @@ public record RelationPredicateDef(
 
     public RelationPredicateDef withCardinality(Cardinality c) {
         return new RelationPredicateDef(name, description, sourceTypes, targetTypes, targetSameAsSource,
-                extraTargetsBySource, c, confidenceCap, core);
+                extraTargetsBySource, c, confidenceCap, core, synonyms);
     }
 
     /** Restricts source, target and extra types to the enabled types. */
@@ -80,7 +92,7 @@ public record RelationPredicateDef(
             }
         });
         return new RelationPredicateDef(name, description, sourceTypes.restrictTo(enabled),
-                targetTypes.restrictTo(enabled), targetSameAsSource, extras, cardinality, confidenceCap, core);
+                targetTypes.restrictTo(enabled), targetSameAsSource, extras, cardinality, confidenceCap, core, synonyms);
     }
 
     /** True when at least one (source, target) pair is still possible. */

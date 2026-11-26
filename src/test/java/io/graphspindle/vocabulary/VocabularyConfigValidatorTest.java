@@ -129,12 +129,13 @@ class VocabularyConfigValidatorTest {
     }
 
     @Test
-    void rejectsTotalPredicateCountOverSixty() {
-        // core: 28 relations + 13 attribute names = 41; 20 more relations makes 61
-        List<CustomRelationPredicate> rels = IntStream.range(0, 20).mapToObj(i -> new CustomRelationPredicate(
+    void rejectsTotalPredicateCountOverTheLimit() {
+        // core: 28 relations + 21 attribute names = 49; the limit is 75 (ADR-025), 27 more relations makes 76
+        assertThat(VocabularyConfigValidator.MAX_ENABLED_PREDICATES).isEqualTo(75);
+        List<CustomRelationPredicate> rels = IntStream.range(0, 27).mapToObj(i -> new CustomRelationPredicate(
                 "CUSTOM_" + i, "d", List.of("Concept"), List.of("Project"), Cardinality.MANY)).toList();
         assertThat(codes(withRelations(rels))).containsExactly(Code.LIMIT_EXCEEDED);
-        assertThat(codes(withRelations(rels.subList(0, 19)))).isEmpty();
+        assertThat(codes(withRelations(rels.subList(0, 26)))).isEmpty();
         // disabling a core predicate makes room
         assertThat(codes(new VocabularyConfig(null, null, List.of("RELATED_TO"), null, null, rels, null))).isEmpty();
     }

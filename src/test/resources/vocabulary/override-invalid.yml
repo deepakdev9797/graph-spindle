@@ -1,0 +1,6 @@
+profile: core-v1
+entityTypes:
+  - name: Vehicle
+    properties:
+      - name: Plate
+        type: STRING

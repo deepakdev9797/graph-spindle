@@ -18,10 +18,30 @@ class CoreVocabularyTest {
     void countsMatchSchemaSection6() {
         assertThat(CoreVocabulary.ENTITY_TYPES).hasSize(15);
         assertThat(CoreVocabulary.RELATION_PREDICATES).hasSize(28);
-        assertThat(CoreVocabulary.ATTRIBUTE_PREDICATES).hasSize(20);
+        // ADR-024/025: richer default property schemas (title, email, phone, location, birthday, notes,
+        // industry, foundedOn) on top of the original 13 attribute names
+        assertThat(CoreVocabulary.ATTRIBUTE_PREDICATES).hasSize(28);
         assertThat(CoreVocabulary.attributeNames()).containsExactlyInAnyOrder("status", "category", "role", "version",
                 "homepage", "rationale", "decidedOn", "dueDate", "startDate", "endDate", "priority", "strength",
-                "detail");
+                "detail", "title", "email", "phone", "location", "birthday", "notes", "industry", "foundedOn");
+    }
+
+    @Test
+    void richerDefaultPropertiesExistWithTheirTypes() {
+        BrainVocabulary v = new VocabularyRegistry().core();
+        assertThat(v.attributesOf("Person")).extracting(AttributePredicateDef::name).containsExactly("role", "title",
+                "email", "phone", "location", "birthday", "notes");
+        assertThat(v.attribute("birthday", "Person").orElseThrow().valueType()).isEqualTo(ValueType.PARTIAL_DATE);
+        assertThat(v.attribute("email", "Person").orElseThrow().maxLength()).isEqualTo(254);
+        assertThat(v.attribute("industry", "Organization").orElseThrow().valueType()).isEqualTo(ValueType.STRING);
+        assertThat(v.attribute("homepage", "Organization").orElseThrow().synonyms()).contains("website");
+        assertThat(v.attribute("role", "Person").orElseThrow().synonyms()).contains("developer");
+        assertThat(v.entityType("Person").orElseThrow().synonyms()).contains("human");
+        // no property is meant for secrets
+        assertThat(CoreVocabulary.attributeNames()).noneMatch(n -> n.matches("(?i).*(password|secret|token|apikey).*"));
+        // every core definition has a description
+        CoreVocabulary.ATTRIBUTE_PREDICATES.forEach(a -> assertThat(a.description()).isNotBlank());
+        CoreVocabulary.RELATION_PREDICATES.forEach(r -> assertThat(r.description()).isNotBlank());
     }
 
     @Test

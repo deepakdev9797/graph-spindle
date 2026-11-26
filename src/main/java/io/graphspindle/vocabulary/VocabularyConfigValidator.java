@@ -34,13 +34,43 @@ public final class VocabularyConfigValidator {
     public static final int MAX_URL_LENGTH = 2000;
     public static final int MAX_DESCRIPTION = 200;
     public static final int MAX_ENABLED_TYPES = 40;
-    public static final int MAX_ENABLED_PREDICATES = 60;
+    /** Raised from 60 for the richer core property schemas (ADR-025). */
+    public static final int MAX_ENABLED_PREDICATES = 75;
 
     private static final int MAX_NAME_INPUT = 64;
-    private static final Pattern TYPE_NAME = Pattern.compile("^[A-Z][A-Za-z0-9]{1,39}$");
-    private static final Pattern RELATION_NAME = Pattern.compile("^[A-Z][A-Z0-9_]{1,39}$");
-    private static final Pattern ATTRIBUTE_NAME = Pattern.compile("^[a-z][A-Za-z0-9]{1,39}$");
+    static final Pattern TYPE_NAME = Pattern.compile("^[A-Z][A-Za-z0-9]{1,39}$");
+    static final Pattern RELATION_NAME = Pattern.compile("^[A-Z][A-Z0-9_]{1,39}$");
+    static final Pattern ATTRIBUTE_NAME = Pattern.compile("^[a-z][A-Za-z0-9]{1,39}$");
     private static final Pattern ENUM_VALUE = Pattern.compile("^[A-Z][A-Z0-9_]{0,39}$");
+
+    private final CoreProfile core;
+
+    /** A validator against the bundled core profile. */
+    public VocabularyConfigValidator() {
+        this(CoreVocabulary.DEFAULT);
+    }
+
+    public VocabularyConfigValidator(CoreProfile core) {
+        this.core = java.util.Objects.requireNonNull(core, "core");
+    }
+
+    /** True when the name is a syntactically valid custom entity type name. */
+    public static boolean isValidTypeName(String name) {
+        return matches(TYPE_NAME, name);
+    }
+
+    /** True when the name is a syntactically valid custom relation predicate name. */
+    public static boolean isValidRelationName(String name) {
+        return matches(RELATION_NAME, name);
+    }
+
+    public static String typeNamePattern() {
+        return TYPE_NAME.pattern();
+    }
+
+    public static String relationNamePattern() {
+        return RELATION_NAME.pattern();
+    }
 
     /** Returns all issues; empty means valid. */
     public List<VocabularyIssue> validate(VocabularyConfig config) {
@@ -67,7 +97,7 @@ public final class VocabularyConfigValidator {
                         + "' and a custom relation predicate differ only in case")));
 
         if (issues.isEmpty()) {
-            BrainVocabulary resolved = VocabularyResolver.resolve(config);
+            BrainVocabulary resolved = VocabularyResolver.resolve(core, config);
             if (resolved.entityTypes().size() > MAX_ENABLED_TYPES) {
                 issues.add(new VocabularyIssue("$", LIMIT_EXCEEDED,
                         "at most " + MAX_ENABLED_TYPES + " entity types may be enabled"));
@@ -99,7 +129,7 @@ public final class VocabularyConfigValidator {
             if (!matches(TYPE_NAME, t.name())) {
                 issues.add(new VocabularyIssue(path + ".name", INVALID_NAME,
                         "type name must match " + TYPE_NAME.pattern()));
-            } else if (CoreVocabulary.isReservedLabel(t.name()) || isCoreEntityTypeIgnoreCase(t.name())) {
+            } else if (CoreVocabulary.isReservedLabel(t.name()) || core.isCoreEntityTypeIgnoreCase(t.name())) {
                 issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
                         "'" + t.name() + "' is a reserved label or a core type (names are compared ignoring case)"));
             } else if (!lowerNames.add(lower(t.name()))) {
@@ -109,9 +139,13 @@ public final class VocabularyConfigValidator {
                 names.add(t.name());
             }
             checkDescription(path + ".description", t.description(), issues);
-            if (t.compatibilityGroup() != null && !CoreVocabulary.COMPATIBILITY_GROUPS.containsKey(t.compatibilityGroup())) {
+            checkTexts(path + ".synonyms", t.synonyms(), VocabularyDefinitionLoader.MAX_SYNONYMS,
+                    VocabularyDefinitionLoader.MAX_SYNONYM_LENGTH, issues);
+            checkTexts(path + ".examples", t.examples(), VocabularyDefinitionLoader.MAX_EXAMPLES,
+                    VocabularyDefinitionLoader.MAX_EXAMPLE_LENGTH, issues);
+            if (t.compatibilityGroup() != null && !core.compatibilityGroups().containsKey(t.compatibilityGroup())) {
                 issues.add(new VocabularyIssue(path + ".compatibilityGroup", INVALID_VALUE,
-                        "compatibilityGroup must be null or one of " + CoreVocabulary.COMPATIBILITY_GROUPS.keySet()));
+                        "compatibilityGroup must be null or one of " + core.compatibilityGroups().keySet()));
             }
         }
         return names;
@@ -121,7 +155,7 @@ public final class VocabularyConfigValidator {
             List<VocabularyIssue> issues) {
         Set<String> enabled = new HashSet<>(customTypes);
         if (config.enabledEntityTypes() == null) {
-            CoreVocabulary.ENTITY_TYPES.forEach(t -> enabled.add(t.name()));
+            core.entityTypes().forEach(t -> enabled.add(t.name()));
             return enabled;
         }
         Set<String> seen = new HashSet<>();
@@ -129,7 +163,7 @@ public final class VocabularyConfigValidator {
         for (int i = 0; i < list.size(); i++) {
             String name = list.get(i);
             String path = "enabledEntityTypes[" + i + "]";
-            if (name == null || !(CoreVocabulary.isCoreEntityType(name) || customTypes.contains(name))) {
+            if (name == null || !(core.isCoreEntityType(name) || customTypes.contains(name))) {
                 issues.add(new VocabularyIssue(path, UNKNOWN_TYPE, "unknown entity type '" + safe(name) + "'"));
             } else if (!seen.add(name)) {
                 issues.add(new VocabularyIssue(path, DUPLICATE_NAME, "duplicate entity type '" + name + "'"));
@@ -152,7 +186,7 @@ public final class VocabularyConfigValidator {
             if (name != null && (CoreVocabulary.SYSTEM_RELATIONSHIP_TYPES.contains(name)
                     || CoreVocabulary.isReservedLabel(name))) {
                 issues.add(new VocabularyIssue(path, CANNOT_DISABLE, "system names cannot be disabled"));
-            } else if (name == null || !(CoreVocabulary.isCoreRelation(name) || CoreVocabulary.isCoreAttributeName(name))) {
+            } else if (name == null || !(core.isCoreRelation(name) || core.isCoreAttributeName(name))) {
                 issues.add(new VocabularyIssue(path, UNKNOWN_PREDICATE,
                         "unknown core predicate '" + safe(name) + "'"));
             } else if (!seen.add(name)) {
@@ -180,7 +214,7 @@ public final class VocabularyConfigValidator {
                 issues.add(new VocabularyIssue(path + ".name", INVALID_NAME,
                         "relation name must match " + RELATION_NAME.pattern()));
             } else if (CoreVocabulary.SYSTEM_RELATIONSHIP_TYPES.stream().anyMatch(n -> n.equalsIgnoreCase(r.name()))
-                    || isCorePredicateIgnoreCase(r.name())) {
+                    || core.isCorePredicateIgnoreCase(r.name())) {
                 issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
                         "'" + r.name() + "' is a system relationship type or a core predicate"));
             } else if (!lowerNames.add(lower(r.name()))) {
@@ -190,6 +224,8 @@ public final class VocabularyConfigValidator {
                 names.add(r.name());
             }
             checkDescription(path + ".description", r.description(), issues);
+            checkTexts(path + ".synonyms", r.synonyms(), VocabularyDefinitionLoader.MAX_SYNONYMS,
+                    VocabularyDefinitionLoader.MAX_SYNONYM_LENGTH, issues);
             checkTypes(path + ".sourceTypes", r.sourceTypes(), enabledTypes, issues);
             checkTypes(path + ".targetTypes", r.targetTypes(), enabledTypes, issues);
         }
@@ -201,7 +237,7 @@ public final class VocabularyConfigValidator {
         // existing attribute names per entity type, starting with the enabled core ones
         Map<String, Set<String>> namesByType = new HashMap<>();
         Set<String> disabled = Set.copyOf(config.disabledPredicates().stream().filter(java.util.Objects::nonNull).toList());
-        for (AttributePredicateDef a : CoreVocabulary.ATTRIBUTE_PREDICATES) {
+        for (AttributePredicateDef a : core.attributePredicates()) {
             if (!disabled.contains(a.name())) {
                 a.entityTypes().forEach(t -> namesByType.computeIfAbsent(lower(t), k -> new HashSet<>())
                         .add(lower(a.name())));
@@ -224,6 +260,9 @@ public final class VocabularyConfigValidator {
                     continue;
                 }
                 checkAttribute(path, a.name(), a.valueType(), a.maxLength(), a.values(), a.min(), a.max(), issues);
+                checkOptionalDescription(path + ".description", a.description(), issues);
+                checkTexts(path + ".synonyms", a.synonyms(), VocabularyDefinitionLoader.MAX_SYNONYMS,
+                        VocabularyDefinitionLoader.MAX_SYNONYM_LENGTH, issues);
                 registerAttribute(path, a.name(), Set.of(String.valueOf(t.name())), namesByType, customCountByType,
                         issues);
                 if (a.name() != null) {
@@ -240,6 +279,9 @@ public final class VocabularyConfigValidator {
                 continue;
             }
             checkAttribute(path, a.name(), a.valueType(), a.maxLength(), a.values(), a.min(), a.max(), issues);
+            checkOptionalDescription(path + ".description", a.description(), issues);
+            checkTexts(path + ".synonyms", a.synonyms(), VocabularyDefinitionLoader.MAX_SYNONYMS,
+                    VocabularyDefinitionLoader.MAX_SYNONYM_LENGTH, issues);
             checkTypes(path + ".entityTypes", a.entityTypes(), enabledTypes, issues);
             registerAttribute(path, a.name(), Set.copyOf(a.entityTypes().stream()
                     .filter(java.util.Objects::nonNull).toList()), namesByType, customCountByType, issues);
@@ -261,7 +303,7 @@ public final class VocabularyConfigValidator {
         if (name == null) {
             return;
         }
-        if (isCorePredicateIgnoreCase(name) && !CoreVocabulary.isCoreAttributeName(name)) {
+        if (core.isCorePredicateIgnoreCase(name) && !core.isCoreAttributeName(name)) {
             issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
                     "'" + name + "' differs from a core predicate only in case"));
         }
@@ -275,7 +317,7 @@ public final class VocabularyConfigValidator {
         }
     }
 
-    private void checkAttribute(String path, String name, ValueType valueType, Integer maxLength, List<String> values,
+    static void checkAttribute(String path, String name, ValueType valueType, Integer maxLength, List<String> values,
             BigDecimal min, BigDecimal max, List<VocabularyIssue> issues) {
         if (!matches(ATTRIBUTE_NAME, name)) {
             issues.add(new VocabularyIssue(path + ".name", INVALID_NAME,
@@ -329,7 +371,7 @@ public final class VocabularyConfigValidator {
                 config.predicateOverrides()).entrySet()) {
             String name = e.getKey();
             String path = "predicateOverrides." + safe(name);
-            boolean known = CoreVocabulary.isCoreRelation(name) || CoreVocabulary.isCoreAttributeName(name)
+            boolean known = core.isCoreRelation(name) || core.isCoreAttributeName(name)
                     || customRelations.contains(name) || customAttributes.contains(name);
             if (!known || disabled.contains(name)) {
                 issues.add(new VocabularyIssue(path, UNKNOWN_PREDICATE,
@@ -362,20 +404,25 @@ public final class VocabularyConfigValidator {
         }
     }
 
-    private static boolean isCoreEntityTypeIgnoreCase(String name) {
-        return CoreVocabulary.ENTITY_TYPES.stream().anyMatch(t -> t.name().equalsIgnoreCase(name));
+    private static void checkOptionalDescription(String path, String description, List<VocabularyIssue> issues) {
+        if (description != null) {
+            checkDescription(path, description, issues);
+        }
     }
 
-    private static boolean isCorePredicateIgnoreCase(String name) {
-        return CoreVocabulary.RELATION_PREDICATES.stream().anyMatch(p -> p.name().equalsIgnoreCase(name))
-                || CoreVocabulary.ATTRIBUTE_PREDICATES.stream().anyMatch(p -> p.name().equalsIgnoreCase(name));
+    private static void checkTexts(String path, List<String> values, int maxCount, int maxLength,
+            List<VocabularyIssue> issues) {
+        List<String> problems = new ArrayList<>();
+        VocabularyDefinitionLoader.texts(path, values, maxCount, maxLength, problems);
+        problems.forEach(p -> issues.add(new VocabularyIssue(path, values != null && values.size() > maxCount
+                ? LIMIT_EXCEEDED : INVALID_VALUE, p)));
     }
 
     private static String lower(String s) {
         return s.toLowerCase(java.util.Locale.ROOT);
     }
 
-    private static boolean matches(Pattern p, String s) {
+    static boolean matches(Pattern p, String s) {
         return s != null && s.length() <= MAX_NAME_INPUT && p.matcher(s).matches();
     }
 

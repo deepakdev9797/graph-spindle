@@ -11,16 +11,34 @@ import java.util.List;
  */
 public final class VocabularyRegistry {
 
+    private final CoreProfile profile;
     private final VocabularyConfigValidator validator;
     private final BrainVocabulary core;
 
+    /** A registry for the bundled core profile. */
     public VocabularyRegistry() {
-        this(new VocabularyConfigValidator());
+        this(CoreVocabulary.DEFAULT);
     }
 
-    public VocabularyRegistry(VocabularyConfigValidator validator) {
-        this.validator = validator;
-        this.core = VocabularyResolver.resolve(VocabularyConfig.core());
+    public VocabularyRegistry(CoreProfile profile) {
+        this.profile = java.util.Objects.requireNonNull(profile, "profile");
+        this.validator = new VocabularyConfigValidator(profile);
+        this.core = VocabularyResolver.resolve(profile, VocabularyConfig.core());
+    }
+
+    /** The core profile (bundled YAML plus any operator override). */
+    public CoreProfile profile() {
+        return profile;
+    }
+
+    /** Validates without resolving; empty means valid. */
+    public List<VocabularyIssue> validate(VocabularyConfig config) {
+        return validator.validate(config);
+    }
+
+    /** Resolves without validating (tolerant), for views of hypothetical configurations. */
+    public BrainVocabulary resolveUnchecked(VocabularyConfig config) {
+        return VocabularyResolver.resolve(profile, config == null ? VocabularyConfig.core() : config);
     }
 
     /** The full core profile. */
@@ -41,6 +59,6 @@ public final class VocabularyRegistry {
         if (!issues.isEmpty()) {
             throw new InvalidVocabularyConfigException(issues);
         }
-        return VocabularyResolver.resolve(config);
+        return VocabularyResolver.resolve(profile, config);
     }
 }

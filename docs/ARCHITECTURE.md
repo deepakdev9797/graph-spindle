@@ -24,7 +24,8 @@ io.graphspindle
 ├── GraphSpindleApplication
 ├── common            ids (UuidV7), Clock, Normalizer (SCHEMA §7), Hashing, errors (GraphSpindleException hierarchy), Limits, PartialDate
 ├── brain             BrainService, BrainConfig (record), BrainScope (value type: validated brainId), internal/BrainStore
-├── vocabulary        VocabularyRegistry, CoreVocabulary (core-v1 records), EntityTypeDef, RelationPredicateDef,
+├── vocabulary        VocabularyRegistry, CoreProfile + VocabularyDefinitionLoader (core-v1.yml), CoreVocabulary,
+│                     NameSimilarity, EntityTypeDef, RelationPredicateDef,
 │                     AttributePredicateDef, BrainVocabulary (resolved per brain), VocabularyConfigValidator,
 │                     PromptVocabularyRenderer, OutputSchemaRenderer
 ├── graph             EntityStore, ClaimStore, AliasStore, IngestionStore, SourceRefStore, ConflictStore,
@@ -270,6 +271,16 @@ All retrieval is deterministic and needs no LLM.
 | `DELETE /brains/{brainId}?confirm={brainId}` | ADMIN | `BrainService.delete` (batched detach-delete) |
 | `GET /brains/{brainId}/vocabulary` | BRAIN_READ | `VocabularyRegistry.forBrain` |
 | `PUT /brains/{brainId}/vocabulary` | BRAIN_ADMIN | `BrainService.updateVocabulary` |
+| `GET /node-types`, `GET /node-types/{type}` | any authenticated | `VocabularyTypeService.coreNodeTypes/coreNodeType` (YAML core profile, read-only) |
+| `GET /relationship-types`, `GET /relationship-types/{name}` | any authenticated | `VocabularyTypeService.coreRelationshipTypes/coreRelationshipType` |
+| `GET /brains/{brainId}/node-types` / `/{type}` | BRAIN_READ | `VocabularyTypeService.nodeTypes/nodeType` |
+| `POST /brains/{brainId}/node-types` | BRAIN_ADMIN | `VocabularyTypeService.createNodeType` (custom; guardrails, ADR-025) |
+| `PUT /brains/{brainId}/node-types/{type}` | BRAIN_ADMIN | `VocabularyTypeService.updateNodeType` (custom fully; core: `enabled` + extra properties) |
+| `DELETE /brains/{brainId}/node-types/{type}` | BRAIN_ADMIN | `VocabularyTypeService.deleteNodeType` (custom only, 409 in use) |
+| `GET /brains/{brainId}/relationship-types` / `/{name}` | BRAIN_READ | `VocabularyTypeService.relationshipTypes/relationshipType` |
+| `POST /brains/{brainId}/relationship-types` | BRAIN_ADMIN | `VocabularyTypeService.createRelationshipType` |
+| `PUT /brains/{brainId}/relationship-types/{name}` | BRAIN_ADMIN | `VocabularyTypeService.updateRelationshipType` (custom fully; core: `enabled`) |
+| `DELETE /brains/{brainId}/relationship-types/{name}` | BRAIN_ADMIN | `VocabularyTypeService.deleteRelationshipType` (custom only, 409 in use) |
 | `POST /brains/{brainId}/ingestions?dryRun=&force=` | INGEST | `IngestionService.ingest` |
 | `GET /brains/{brainId}/ingestions` / `/{id}` | BRAIN_READ | `IngestionService.list/get` |
 | `GET /brains/{brainId}/search?q=&types=&limit=` | BRAIN_READ | `SearchService.search` |
@@ -293,7 +304,7 @@ All retrieval is deterministic and needs no LLM.
 | `POST /admin/api-keys`, `GET /admin/api-keys`, `DELETE /admin/api-keys/{keyId}` | ADMIN (or BRAIN_ADMIN for keys limited to its brains) | `ApiKeyAdminService` |
 | `GET /admin/brains/{brainId}/projection-check` | BRAIN_ADMIN | `ProjectionVerifier` |
 
-Implemented in M5 (ADR-023): every row above except ingestions, api-keys and `GET /system/info`. Lists use keyset pagination (`cursor` = the `next` value of the previous page, `limit` ≤ 200, default 50) and return `{items, next}`. `GET /entities/{id}` accepts `maxClaims` (≤ 100, default 30); `/neighbors` accepts `limit` (≤ 200 nodes, default 50); `/search` takes `types` as a comma-separated list. Until M9 every request acts as the principal `admin`.
+Implemented in M5 (ADR-023): every row above except ingestions, api-keys and `GET /system/info`; the node-type and relationship-type rows were added with ADR-025 (per-brain responses carry `configVersion` as ETag and writes accept `If-Match`; `graphspindle.vocabulary.api-mutable=false` makes the writes 403). Lists use keyset pagination (`cursor` = the `next` value of the previous page, `limit` ≤ 200, default 50) and return `{items, next}`. `GET /entities/{id}` accepts `maxClaims` (≤ 100, default 30); `/neighbors` accepts `limit` (≤ 200 nodes, default 50); `/search` takes `types` as a comma-separated list. Until M9 every request acts as the principal `admin`.
 
 Swagger UI is at `/swagger-ui.html` and OpenAPI at `/v3/api-docs`. Both require authentication unless security is disabled on loopback. Actuator `health` is unauthenticated and returns status only, without details.
 

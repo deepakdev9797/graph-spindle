@@ -371,9 +371,45 @@ Types: `String(n)` is a string with at most n Unicode code points. `Enum` values
 
 ## 6. Controlled vocabulary (normative, core profile `core-v1`)
 
-The vocabulary is defined in Java as data, one registry with records. It is not a set of hand-written Cypher strings. The registry renders the LLM prompt section, the JSON schema for the output, the validator rules, and the `GET /vocabulary` response, all from the same records, so they cannot drift apart.
+The vocabulary is defined as data in the YAML file `src/main/resources/vocabulary/core-v1.yml` (ADR-024, ADR-025), reviewed like code. At startup `VocabularyDefinitionLoader` parses and validates it (fail-fast with every problem listed) into the immutable records (`EntityTypeDef`, `RelationPredicateDef`, `AttributePredicateDef`) held by `CoreProfile`; `CoreVocabulary` exposes the bundled profile as constants. It is not a set of hand-written Cypher strings. The registry renders the LLM prompt section, the JSON schema for the output, the validator rules, and the `GET /vocabulary`, `/node-types` and `/relationship-types` responses, all from the same records, so they cannot drift apart.
+
+An operator file (`graphspindle.vocabulary.location`, any Spring resource such as `file:/etc/graphspindle/vocabulary.yml`) is merged over the bundled file by name: entries with the same name replace the bundled entry, new ones are appended, `removeEntityTypes` / `removeRelationshipTypes` drop entries, and `classificationHints` replace the bundled hints when present. The merged result is validated as a whole (for example, removing a type that a relationship type still references is an error).
+
+YAML shape (one entry each):
+
+```yaml
+profile: core-v1
+classificationHints:
+  - { text: "A license is a Standard with category = LICENSE.", requiresType: Standard }
+entityTypes:
+  - name: Person                       # ^[A-Z][A-Za-z0-9]{1,39}$, not reserved, unique ignoring case
+    description: A specific human being   # required, <= 200
+    group: ACTOR                       # type compatibility group (§6.2), optional
+    synonyms: [human, individual]      # <= 10, each <= 60; prompt + similarity guardrail
+    examples: ["Alice Chen"]           # <= 5, each <= 100
+    properties:                        # <= 20 per type
+      - name: role                     # ^[a-z][A-Za-z0-9]{1,39}$
+        type: STRING                   # STRING | ENUM | PARTIAL_DATE | URL | NUMBER | BOOLEAN
+        maxLength: 100                 # STRING (<= 500, default 200), URL (<= 2000)
+        description: job or function   # required
+        synonyms: [developer, engineer]
+        # values / engineOnlyValues (ENUM), min / max (NUMBER), cardinality ONE|MANY (default ONE),
+        # required: true (advisory: "record when known"; not enforced)
+relationshipTypes:
+  - name: MEMBER_OF                    # ^[A-Z][A-Z0-9_]{1,39}$, not a system relationship type
+    description: belongs to, or is employed by
+    synonyms: [works at, employed by]
+    sources: [Person, Agent, Organization]   # [Any] = any enabled type
+    targets: [Organization, Project]
+    cardinality: MANY                  # default MANY
+    # targetSameAsSource, extraTargetsBySource, confidenceCap: core only
+```
+
+Identical property definitions on several types (same name, type, constraints and description) become one attribute predicate applying to all of them; definitions that differ (e.g. `status`) stay separate. Synonyms are rendered into the prompt compactly as `(aka …)`.
 
 ### 6.1 Entity types (15)
+
+Synonyms of each type are in the YAML file.
 
 | Type | Description given to the LLM | Examples |
 |---|---|---|
@@ -446,7 +482,7 @@ Self-loops (subject equals object) are rejected for every predicate.
 
 ### 6.4 Attribute predicates (literal claims, projected as `attr_<name>`)
 
-All attribute predicates have cardinality ONE unless marked otherwise. Allowed values for enums are fixed lists.
+All attribute predicates have cardinality ONE unless marked otherwise. Allowed values for enums are fixed lists. The rows from `title` down are the richer default property schemas of ADR-024 (personal contact data such as email and phone is allowed; secrets never are, and the secret scanner still rejects credential-like values in any property).
 
 | Predicate | Entity types | Value type | Constraint |
 |---|---|---|---|
@@ -470,6 +506,14 @@ All attribute predicates have cardinality ONE unless marked otherwise. Allowed v
 | `priority` | Task, Goal | ENUM | `LOW, MEDIUM, HIGH, CRITICAL` |
 | `strength` | Preference | ENUM | `WEAK, MODERATE, STRONG` |
 | `detail` | Preference, Skill | STRING(300) | |
+| `title` | Person | STRING(100) | formal job title or honorific |
+| `email` | Person | STRING(254) | |
+| `phone` | Person | STRING(40) | |
+| `location` | Person, Organization, Event | STRING(200) | free text; `LOCATED_IN` for a known Place |
+| `birthday` | Person | PARTIAL_DATE | |
+| `notes` | Person, Agent, Organization, Project, Technology, Artifact, Concept, Task, Event | STRING(500) | short durable notes |
+| `industry` | Organization | STRING(100) | |
+| `foundedOn` | Organization | PARTIAL_DATE | |
 
 Rules:
 
@@ -821,7 +865,7 @@ If the same text had said "Correction: GraphSpindle is actually GPL-3.0", the ou
 
 ## 11. Vocabulary extensibility (normative)
 
-The vocabulary is fixed at runtime per brain. It comes from **code** (core profile) plus the **brain configuration** (subset and custom additions) set through the admin API. The LLM never adds to it, and unknown types or predicates in LLM output are rejected with reason `UNKNOWN_TYPE` or `UNKNOWN_PREDICATE`.
+The vocabulary is fixed at runtime per brain. It comes from the **YAML definition** (core profile, §6) plus the **brain configuration** (subset and custom additions) set through the admin API: `PUT /vocabulary` replaces the whole configuration, and the node-type / relationship-type endpoints (ARCHITECTURE §10, ADR-025) edit it one type at a time. Both write the same `BrainConfig.vocabulary`; there is no second store. The LLM never adds to it, and unknown types or predicates in LLM output are rejected with reason `UNKNOWN_TYPE` or `UNKNOWN_PREDICATE`.
 
 ```jsonc
 // BrainConfig.vocabulary
@@ -832,7 +876,8 @@ The vocabulary is fixed at runtime per brain. It comes from **code** (core profi
   "predicateOverrides": { "LICENSED_UNDER": { "cardinality": "MANY" } },                         // only cardinality may be overridden
   "customEntityTypes": [
     { "name": "Recipe", "description": "A cooking recipe", "compatibilityGroup": null,
-      "attributes": [ { "name": "cuisine", "valueType": "STRING", "maxLength": 50 },
+      "synonyms": ["dish"], "examples": ["pad thai"],                                            // optional
+      "attributes": [ { "name": "cuisine", "valueType": "STRING", "maxLength": 50, "description": "style of cooking" },
                       { "name": "difficulty", "valueType": "ENUM", "values": ["EASY","MEDIUM","HARD"] } ] }
   ],
   "customRelationPredicates": [
@@ -852,8 +897,12 @@ Bounds, enforced by `VocabularyConfigValidator` when the config is saved:
 | Custom relation predicate | `^[A-Z][A-Z0-9_]{1,39}$`. Not a system relationship type or core predicate, ignoring case. At most 30. Source and target types must be enabled. |
 | Attribute name | `^[a-z][A-Za-z0-9]{1,39}$`, unique per entity type ignoring case, not a core predicate or custom relation name differing only in case, at most 10 per type. `valueType ∈ {STRING, ENUM, PARTIAL_DATE, BOOLEAN, NUMBER, URL}`. ENUM has at most 30 values, each matching `^[A-Z][A-Z0-9_]{0,39}$`. STRING `maxLength` ≤ 500. |
 | Disabling | `Person` cannot be disabled (the self entity), and system labels cannot be disabled. Disabling a type with existing entities is allowed: those entities become read-only for ingestion and remain retrievable. |
-| Removing a custom type or predicate | Rejected while ACTIVE entities or ACTIVE/DISPUTED claims use it (409 `CONFLICT_STATE` with an `inUse` map), on both `PATCH /brains/{id}` (config) and `PUT /vocabulary`. `force=true` (archive them) is not in the MVP (ADR-022). |
-| Total | At most 40 entity types and 60 predicates enabled, which keeps the prompt within budget. |
+| Synonyms, examples, descriptions | Custom types: synonyms ≤ 10 (each ≤ 60), examples ≤ 5 (each ≤ 100). Attribute `description` ≤ 200 is optional in the config (required through the node-type API); `cardinality` defaults to ONE; `required` is advisory. |
+| Removing a custom type or predicate | Rejected while ACTIVE entities or ACTIVE/DISPUTED claims use it (409 `CONFLICT_STATE` with an `inUse` map), on `PATCH /brains/{id}` (config), `PUT /vocabulary` and the node-type / relationship-type endpoints. `force=true` (archive them) is not in the MVP (ADR-022). |
+| Removing or narrowing a property | Removing a property from one type, or narrowing it (another value type, fewer enum values, a shorter `maxLength`, a tighter `min`/`max`, MANY → ONE), is rejected while ACTIVE/DISPUTED claims of that type use it (409, `inUse` key `Type.property`). Narrowing a custom relation predicate (fewer source or target types, MANY → ONE) is rejected while it is in use. Disabling core types and predicates stays allowed (ADR-025). |
+| Similarity | A new or renamed custom type or relation predicate must not equal (ignoring case and punctuation), be the singular/plural of, or (≥ 5 characters) be within Levenshtein distance 2 of an existing type or relation name, a synonym, or (for types) a property name or synonym: 409 `ALREADY_EXISTS` for the same name, otherwise 409 `CONFLICT_STATE` with `similarTo`, `matchedTerm` and a `hint` (e.g. `Developer` → `Person.role`). Applies to the type endpoints and to new names in `PUT /vocabulary` (ADR-025). |
+| Lock | `graphspindle.vocabulary.api-mutable=false` makes every vocabulary write through the API `403 FORBIDDEN` (type endpoints, `PUT /vocabulary`, and brain create/update configs that change the vocabulary); reads keep working. |
+| Total | At most 40 entity types and 75 predicates enabled (raised from 60 for the richer defaults, ADR-025), which keeps the prompt within budget. |
 
 Changing the vocabulary bumps `Brain.configVersion`. The prompt cache key includes it.
 
