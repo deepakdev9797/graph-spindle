@@ -60,6 +60,11 @@ public final class VocabularyConfigValidator {
                 issues);
         Set<String> customAttributeNames = validateAttributes(config, enabledTypes, issues);
         validateOverrides(config, customRelationNames, customAttributeNames, issues);
+        Set<String> lowerRelations = new HashSet<>();
+        customRelationNames.forEach(r -> lowerRelations.add(lower(r)));
+        customAttributeNames.stream().filter(a -> lowerRelations.contains(lower(a))).sorted().forEach(a ->
+                issues.add(new VocabularyIssue("customAttributePredicates", DUPLICATE_NAME, "attribute '" + a
+                        + "' and a custom relation predicate differ only in case")));
 
         if (issues.isEmpty()) {
             BrainVocabulary resolved = VocabularyResolver.resolve(config);
@@ -78,6 +83,8 @@ public final class VocabularyConfigValidator {
 
     private Set<String> validateCustomTypes(List<CustomEntityType> types, List<VocabularyIssue> issues) {
         Set<String> names = new HashSet<>();
+        // canonicalKey lowercases the type, so type names are unique case-insensitively (ADR-021)
+        Set<String> lowerNames = new HashSet<>();
         if (types.size() > MAX_CUSTOM_ENTITY_TYPES) {
             issues.add(new VocabularyIssue("customEntityTypes", LIMIT_EXCEEDED,
                     "at most " + MAX_CUSTOM_ENTITY_TYPES + " custom entity types"));
@@ -92,11 +99,14 @@ public final class VocabularyConfigValidator {
             if (!matches(TYPE_NAME, t.name())) {
                 issues.add(new VocabularyIssue(path + ".name", INVALID_NAME,
                         "type name must match " + TYPE_NAME.pattern()));
-            } else if (CoreVocabulary.isReservedLabel(t.name()) || CoreVocabulary.isCoreEntityType(t.name())) {
+            } else if (CoreVocabulary.isReservedLabel(t.name()) || isCoreEntityTypeIgnoreCase(t.name())) {
                 issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
-                        "'" + t.name() + "' is a reserved label or a core type"));
-            } else if (!names.add(t.name())) {
-                issues.add(new VocabularyIssue(path + ".name", DUPLICATE_NAME, "duplicate type '" + t.name() + "'"));
+                        "'" + t.name() + "' is a reserved label or a core type (names are compared ignoring case)"));
+            } else if (!lowerNames.add(lower(t.name()))) {
+                issues.add(new VocabularyIssue(path + ".name", DUPLICATE_NAME, "duplicate type '" + t.name()
+                        + "' (names are compared ignoring case)"));
+            } else {
+                names.add(t.name());
             }
             checkDescription(path + ".description", t.description(), issues);
             if (t.compatibilityGroup() != null && !CoreVocabulary.COMPATIBILITY_GROUPS.containsKey(t.compatibilityGroup())) {
@@ -154,6 +164,7 @@ public final class VocabularyConfigValidator {
     private Set<String> validateCustomRelations(List<CustomRelationPredicate> relations, Set<String> enabledTypes,
             List<VocabularyIssue> issues) {
         Set<String> names = new HashSet<>();
+        Set<String> lowerNames = new HashSet<>();
         if (relations.size() > MAX_CUSTOM_RELATIONS) {
             issues.add(new VocabularyIssue("customRelationPredicates", LIMIT_EXCEEDED,
                     "at most " + MAX_CUSTOM_RELATIONS + " custom relation predicates"));
@@ -168,13 +179,15 @@ public final class VocabularyConfigValidator {
             if (!matches(RELATION_NAME, r.name())) {
                 issues.add(new VocabularyIssue(path + ".name", INVALID_NAME,
                         "relation name must match " + RELATION_NAME.pattern()));
-            } else if (CoreVocabulary.SYSTEM_RELATIONSHIP_TYPES.contains(r.name())
-                    || CoreVocabulary.isCoreRelation(r.name())) {
+            } else if (CoreVocabulary.SYSTEM_RELATIONSHIP_TYPES.stream().anyMatch(n -> n.equalsIgnoreCase(r.name()))
+                    || isCorePredicateIgnoreCase(r.name())) {
                 issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
                         "'" + r.name() + "' is a system relationship type or a core predicate"));
-            } else if (!names.add(r.name())) {
+            } else if (!lowerNames.add(lower(r.name()))) {
                 issues.add(new VocabularyIssue(path + ".name", DUPLICATE_NAME,
                         "duplicate predicate '" + r.name() + "'"));
+            } else {
+                names.add(r.name());
             }
             checkDescription(path + ".description", r.description(), issues);
             checkTypes(path + ".sourceTypes", r.sourceTypes(), enabledTypes, issues);
@@ -190,7 +203,8 @@ public final class VocabularyConfigValidator {
         Set<String> disabled = Set.copyOf(config.disabledPredicates().stream().filter(java.util.Objects::nonNull).toList());
         for (AttributePredicateDef a : CoreVocabulary.ATTRIBUTE_PREDICATES) {
             if (!disabled.contains(a.name())) {
-                a.entityTypes().forEach(t -> namesByType.computeIfAbsent(t, k -> new HashSet<>()).add(a.name()));
+                a.entityTypes().forEach(t -> namesByType.computeIfAbsent(lower(t), k -> new HashSet<>())
+                        .add(lower(a.name())));
             }
         }
         Map<String, Integer> customCountByType = new HashMap<>();
@@ -247,10 +261,15 @@ public final class VocabularyConfigValidator {
         if (name == null) {
             return;
         }
+        if (isCorePredicateIgnoreCase(name) && !CoreVocabulary.isCoreAttributeName(name)) {
+            issues.add(new VocabularyIssue(path + ".name", RESERVED_NAME,
+                    "'" + name + "' differs from a core predicate only in case"));
+        }
         for (String type : types) {
-            if (!namesByType.computeIfAbsent(type, k -> new HashSet<>()).add(name)) {
+            // case-insensitive, so "homePage" cannot shadow the core "homepage"
+            if (!namesByType.computeIfAbsent(lower(type), k -> new HashSet<>()).add(lower(name))) {
                 issues.add(new VocabularyIssue(path + ".name", DUPLICATE_NAME,
-                        "attribute '" + name + "' already exists for type " + type));
+                        "attribute '" + name + "' already exists for type " + type + " (names are compared ignoring case)"));
             }
             customCountByType.merge(type, 1, Integer::sum);
         }
@@ -341,6 +360,19 @@ public final class VocabularyConfigValidator {
             issues.add(new VocabularyIssue(path, INVALID_VALUE,
                     "description must be at most " + MAX_DESCRIPTION + " characters"));
         }
+    }
+
+    private static boolean isCoreEntityTypeIgnoreCase(String name) {
+        return CoreVocabulary.ENTITY_TYPES.stream().anyMatch(t -> t.name().equalsIgnoreCase(name));
+    }
+
+    private static boolean isCorePredicateIgnoreCase(String name) {
+        return CoreVocabulary.RELATION_PREDICATES.stream().anyMatch(p -> p.name().equalsIgnoreCase(name))
+                || CoreVocabulary.ATTRIBUTE_PREDICATES.stream().anyMatch(p -> p.name().equalsIgnoreCase(name));
+    }
+
+    private static String lower(String s) {
+        return s.toLowerCase(java.util.Locale.ROOT);
     }
 
     private static boolean matches(Pattern p, String s) {

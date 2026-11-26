@@ -16,6 +16,9 @@ public final class AttributeValues {
     /** Hard upper bound on any literal before type-specific checks. */
     public static final int MAX_VALUE_LENGTH = 2000;
 
+    /** Maximum significant digits and maximum absolute scale of a NUMBER value. */
+    public static final int MAX_NUMBER_DIGITS = 38;
+
     private AttributeValues() {
     }
 
@@ -67,7 +70,8 @@ public final class AttributeValues {
                 if (Normalizer.codePointLength(v) > max) {
                     yield Checked.invalid("value must be at most " + max + " characters");
                 }
-                String norm = Normalizer.norm(v);
+                // untruncated: a 200-code-point prefix must not make distinct values share an activeKey
+                String norm = Normalizer.normUntruncated(v);
                 yield norm.isEmpty() ? Checked.invalid("value is empty after normalization") : Checked.ok(v, norm);
             }
             case PARTIAL_DATE -> PartialDate.isValid(v) ? Checked.ok(v, v)
@@ -88,14 +92,21 @@ public final class AttributeValues {
         }
         BigDecimal n;
         try {
-            n = new BigDecimal(v);
-        } catch (NumberFormatException e) {
+            n = new BigDecimal(v).stripTrailingZeros();
+        } catch (NumberFormatException | ArithmeticException e) {
             return Checked.invalid("value must be a decimal number");
+        }
+        // Bound the plain form before building it: "1E+999999999" is a 12-character input whose
+        // toPlainString() has a billion digits. Precision and |scale| <= 38 keep it under ~80 chars.
+        if (n.precision() > MAX_NUMBER_DIGITS || Math.abs((long) n.scale()) > MAX_NUMBER_DIGITS) {
+            return Checked.invalid("number must have at most " + MAX_NUMBER_DIGITS
+                    + " significant digits and an exponent between -" + MAX_NUMBER_DIGITS + " and "
+                    + MAX_NUMBER_DIGITS);
         }
         if (def.min() != null && n.compareTo(def.min()) < 0 || def.max() != null && n.compareTo(def.max()) > 0) {
             return Checked.invalid("value is out of range");
         }
-        String canonical = n.stripTrailingZeros().toPlainString();
+        String canonical = n.toPlainString();
         return Checked.ok(canonical, canonical);
     }
 
@@ -112,6 +123,9 @@ public final class AttributeValues {
             new URI(v);
         } catch (URISyntaxException e) {
             return Checked.invalid("URL cannot be parsed");
+        }
+        if (Normalizer.hasUserInfo(v)) {
+            return Checked.invalid("URL must not contain user information (credentials)");
         }
         return Checked.ok(v, Normalizer.normalizeUrl(v));
     }

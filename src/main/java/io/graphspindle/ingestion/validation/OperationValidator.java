@@ -83,6 +83,12 @@ public final class OperationValidator {
 
     private static final Pattern REF = Pattern.compile("^[a-z][a-z0-9_]{0,15}$");
 
+    /** {@code normalizedName} of the brain's self entity (SCHEMA §7.6). */
+    static final String SELF_NORMALIZED_NAME = "@self";
+    /** First-person words by which evidence mentions the self entity. */
+    static final List<String> FIRST_PERSON = List.of("i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
+            "ourselves");
+
     /** Names that only denote pronouns or stop words and must never become entities. */
     static final Set<String> STOP_NAMES = Set.of("i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
             "ourselves", "you", "your", "yours", "yourself", "he", "him", "his", "she", "her", "hers", "it", "its",
@@ -121,10 +127,16 @@ public final class OperationValidator {
         private final List<PlanCommand> commands = new ArrayList<>();
         private final List<ValidationIssue> rejected = new ArrayList<>();
         private final List<Adjustment> adjusted = new ArrayList<>();
+        /** Adjustments of the operation being validated; kept only if it is accepted. */
+        private final List<Adjustment> pending = new ArrayList<>();
         private final Map<String, ResolvedEntity> refs = new LinkedHashMap<>();
         private final Map<String, Integer> droppedRefs = new HashMap<>();
         private final Set<String> seenRefs = new HashSet<>();
         private final Map<String, ResolvedEntity.New> newByKey = new HashMap<>();
+        /** Entities created by this plan, in order, by normalized name (compatible-type unification). */
+        private final Map<String, List<ResolvedEntity.New>> newByName = new HashMap<>();
+        /** Names and aliases given in this plan, per entity key, for the evidence relevance check. */
+        private final Map<String, Set<String>> planTerms = new HashMap<>();
         private final Map<String, Integer> aliasesPerEntity = new HashMap<>();
         private final Map<String, Set<String>> aliasNormsPerEntity = new HashMap<>();
         private final Map<String, Integer> claimsPerSubject = new HashMap<>();
@@ -147,11 +159,13 @@ public final class OperationValidator {
                 MutationOperation operation = ops.get(i);
                 index = parsed.wireIndexes().get(i);
                 op = operation.wireName();
+                pending.clear();
                 try {
                     if (index >= ctx.limits().maxOperations()) {
                         throw new Reject(LIMIT_EXCEEDED, "more than " + ctx.limits().maxOperations() + " operations");
                     }
                     apply(operation);
+                    adjusted.addAll(pending);
                 } catch (Reject r) {
                     rejected.add(new ValidationIssue(index, op, r.code, r.getMessage()));
                     if (operation instanceof CreateEntity c && r.code != DUPLICATE_REF && REF.matcher(c.ref()).matches()
@@ -222,8 +236,9 @@ public final class OperationValidator {
                     adjust(Adjustment.Kind.ALIAS_DROPPED, "duplicate alias dropped");
                 }
             }
-            secrets(c.name(), c.description());
+            secrets(c.name(), c.description(), normalized);
             c.aliases().forEach(this::secrets);
+            aliases.forEach(a -> secrets(a.normalized()));
 
             String canonicalKey = Normalizer.canonicalKey(c.type(), normalized);
             Optional<EntityCandidate> existing = matchExisting(c.type(), normalized, canonicalKey);
@@ -240,16 +255,19 @@ public final class OperationValidator {
                             + " by create_entity; use update_entity");
                 }
                 refs.put(c.ref(), target);
+                addTerms(target, c.name(), aliases);
                 fresh.forEach(a -> commands.add(new AddAliasCommand(index, target, a)));
                 return;
             }
-            ResolvedEntity.New earlier = newByKey.get(canonicalKey);
+            ResolvedEntity.New earlier = matchNew(c.type(), normalized, canonicalKey);
             if (earlier != null) {
                 List<AliasSpec> fresh = freshAliases(earlier, aliases, Set.of());
                 countAliases(earlier, fresh.size());
                 adjust(Adjustment.Kind.CREATE_BECAME_REFERENCE, "create_entity '" + c.ref()
-                        + "' repeats '" + earlier.ref() + "'");
+                        + "' repeats '" + earlier.ref() + "'" + (earlier.type().equals(c.type()) ? ""
+                                : " (compatible type " + earlier.type() + " kept)"));
                 refs.put(c.ref(), earlier);
+                addTerms(earlier, c.name(), aliases);
                 fresh.forEach(a -> commands.add(new AddAliasCommand(index, earlier, a)));
                 return;
             }
@@ -262,7 +280,9 @@ public final class OperationValidator {
             aliases.forEach(a -> aliasNormsPerEntity.get(key(created)).add(a.normalized()));
             newEntities++;
             newByKey.put(canonicalKey, created);
+            newByName.computeIfAbsent(normalized, k -> new ArrayList<>()).add(created);
             refs.put(c.ref(), created);
+            addTerms(created, c.name(), aliases);
             commands.add(new CreateEntityCommand(index, created, c.name().strip(), normalized, blankToNull(c.description()),
                     aliases));
         }
@@ -279,6 +299,26 @@ public final class OperationValidator {
             List<EntityCandidate> compatible = candidates.byNormalizedName(normalized).stream()
                     .filter(e -> vocab.compatible(type, e.type())).toList();
             return compatible.size() == 1 ? Optional.of(compatible.get(0)) : Optional.empty();
+        }
+
+        /**
+         * An entity created earlier in this plan with the same canonical key, or else the first one
+         * with the same normalized name and a compatible type: the earlier type wins, as the existing
+         * type does for candidates (SCHEMA §6.2).
+         */
+        private ResolvedEntity.New matchNew(String type, String normalized, String canonicalKey) {
+            ResolvedEntity.New exact = newByKey.get(canonicalKey);
+            if (exact != null) {
+                return exact;
+            }
+            return newByName.getOrDefault(normalized, List.of()).stream()
+                    .filter(e -> vocab.compatible(type, e.type())).findFirst().orElse(null);
+        }
+
+        private void addTerms(ResolvedEntity e, String name, List<AliasSpec> aliases) {
+            Set<String> terms = planTerms.computeIfAbsent(key(e), k -> new LinkedHashSet<>());
+            terms.add(name.strip());
+            aliases.forEach(a -> terms.add(a.display()));
         }
 
         private List<AliasSpec> freshAliases(ResolvedEntity target, List<AliasSpec> aliases, Set<String> known) {
@@ -322,18 +362,21 @@ public final class OperationValidator {
             ResolvedEntity target = resolve(a.target());
             checkWritable(target);
             String norm = checkName("alias", a.alias());
-            secrets(a.alias());
+            secrets(a.alias(), norm);
             Set<String> known = target instanceof ResolvedEntity.Existing e
                     ? candidates.byEntityId(e.entityId()).map(EntityCandidate::aliasNorms).orElse(Set.of())
                     : Set.of();
             List<AliasSpec> fresh = freshAliases(target, List.of(new AliasSpec(a.alias().strip(), norm)), known);
             countAliases(target, fresh.size());
+            addTerms(target, a.alias(), List.of());
             fresh.forEach(alias -> commands.add(new AddAliasCommand(index, target, alias)));
         }
 
         private void proposeMerge(ProposeMerge m) {
             ResolvedEntity a = resolve(m.a());
             ResolvedEntity b = resolve(m.b());
+            checkWritable(a);
+            checkWritable(b);
             if (a.sameAs(b)) {
                 throw new Reject(SELF_LOOP, "an entity cannot be merged with itself");
             }
@@ -351,6 +394,7 @@ public final class OperationValidator {
                         + ctx.sourceSummaries().size() + " request sources");
             }
             ResolvedEntity target = resolve(l.target());
+            checkWritable(target);
             commands.add(new LinkSourceCommand(index, l.sourceIndex(), target));
         }
 
@@ -365,6 +409,7 @@ public final class OperationValidator {
 
         private void supersede(SupersedeClaim s) {
             ClaimCandidate existing = claimHandle(s.claimHandle());
+            checkWritable(existing);
             requiredText("reason", s.reason(), MAX_REASON);
             secrets(s.reason());
             ResolvedClaim replacement = claim(s.replacement());
@@ -387,10 +432,18 @@ public final class OperationValidator {
 
         private void retract(RetractClaim r) {
             ClaimCandidate existing = claimHandle(r.claimHandle());
+            checkWritable(existing);
             requiredText("reason", r.reason(), MAX_REASON);
             requiredText("evidence", r.evidence(), MAX_EVIDENCE);
             secrets(r.reason(), r.evidence());
-            checkEvidence(r.evidence());
+            List<String> terms = new ArrayList<>(existingTerms(existing.subjectEntityId()));
+            if (existing.objectEntityId() != null) {
+                terms.addAll(existingTerms(existing.objectEntityId()));
+            }
+            if (existing.valueNorm() != null) {
+                terms.add(existing.valueNorm());
+            }
+            checkEvidence(r.evidence(), terms);
             if (existing.origin() == Origin.MANUAL) {
                 commands.add(new ProtectedOverrideCommand(index, op, null, existing.claimId(), null,
                         "retract_claim on a MANUAL claim: " + r.reason().strip()));
@@ -402,9 +455,16 @@ public final class OperationValidator {
 
         private void flagConflict(FlagConflict f) {
             ClaimCandidate existing = claimHandle(f.claimHandle());
+            checkWritable(existing);
             requiredText("description", f.description(), MAX_CONFLICT_DESCRIPTION);
             secrets(f.description());
             ResolvedClaim incoming = claim(f.incoming());
+            boolean sameSubject = incoming.subject() instanceof ResolvedEntity.Existing e
+                    && e.entityId().equals(existing.subjectEntityId());
+            if (!sameSubject || !incoming.predicate().equals(existing.predicate())) {
+                throw new Reject(NOT_SLOT_CONFLICT,
+                        "incoming claim must have the same subject and predicate as claim " + f.claimHandle());
+            }
             countClaim(incoming);
             commands.add(new FlagConflictCommand(index, existing.claimId(), incoming, f.description().strip()));
         }
@@ -472,8 +532,16 @@ public final class OperationValidator {
                             + ctx.sourceSummaries().size() + " request sources");
                 }
             }
-            secrets(statement, quote, a.value());
-            checkEvidence(quote);
+            secrets(statement, quote, a.value(), value == null ? null : value.valueNorm());
+            List<String> terms = new ArrayList<>(terms(subject));
+            if (object != null) {
+                terms.addAll(terms(object));
+            }
+            if (value != null) {
+                terms.add(a.value());
+                terms.add(value.value().replace('_', ' '));
+            }
+            checkEvidence(quote, terms);
             if (confidence < ctx.policy().minConfidence()) {
                 throw new Reject(LOW_CONFIDENCE, "confidence " + confidence + " is below "
                         + ctx.policy().minConfidence());
@@ -565,9 +633,47 @@ public final class OperationValidator {
 
         /** Entities of a type disabled for the brain are read-only for ingestion (SCHEMA §11). */
         private void checkWritable(ResolvedEntity e) {
-            if (!vocab.isEnabledType(e.type())) {
-                throw new Reject(UNKNOWN_TYPE, "entity type " + e.type() + " is disabled; the entity is read-only");
+            checkWritableType(e.type());
+        }
+
+        /** A claim is changed through its subject; its object must not be read-only either. */
+        private void checkWritable(ClaimCandidate c) {
+            candidates.byEntityId(c.subjectEntityId()).ifPresent(e -> checkWritableType(e.type()));
+            if (c.objectEntityId() != null) {
+                candidates.byEntityId(c.objectEntityId()).ifPresent(e -> checkWritableType(e.type()));
             }
+        }
+
+        private void checkWritableType(String type) {
+            if (!vocab.isEnabledType(type)) {
+                throw new Reject(UNKNOWN_TYPE, "entity type " + type + " is disabled; the entity is read-only");
+            }
+        }
+
+        /** Words by which the evidence may mention an entity: names and aliases (ADR-021). */
+        private List<String> terms(ResolvedEntity e) {
+            List<String> out = new ArrayList<>(planTerms.getOrDefault(key(e), Set.of()));
+            if (e instanceof ResolvedEntity.Existing x) {
+                out.addAll(existingTerms(x.entityId()));
+            }
+            return out;
+        }
+
+        private List<String> existingTerms(String entityId) {
+            return candidates.byEntityId(entityId).map(c -> {
+                List<String> out = new ArrayList<>();
+                if (SELF_NORMALIZED_NAME.equals(c.normalizedName())) {
+                    out.addAll(FIRST_PERSON);
+                }
+                if (c.name() != null) {
+                    out.add(c.name());
+                }
+                if (c.normalizedName() != null && !SELF_NORMALIZED_NAME.equals(c.normalizedName())) {
+                    out.add(c.normalizedName());
+                }
+                out.addAll(c.aliasNorms());
+                return out;
+            }).orElse(List.of());
         }
 
         private ClaimCandidate claimHandle(String handle) {
@@ -583,7 +689,12 @@ public final class OperationValidator {
             if (Normalizer.codePointLength(value) > MAX_NAME) {
                 throw new Reject(INVALID_VALUE, field + " must be at most " + MAX_NAME + " characters");
             }
-            String norm = Normalizer.norm(value);
+            String norm = Normalizer.normUntruncated(value);
+            if (Normalizer.codePointLength(norm) > Normalizer.MAX_NAME_CODE_POINTS) {
+                // NFKC can expand a short name (e.g. U+FDFA); truncating would merge distinct names (SCHEMA §7.3)
+                throw new Reject(NAME_INVALID, field + " is longer than " + Normalizer.MAX_NAME_CODE_POINTS
+                        + " characters after normalization");
+            }
             if (norm.isEmpty()) {
                 throw new Reject(NAME_INVALID, field + " is empty after normalization");
             }
@@ -626,14 +737,18 @@ public final class OperationValidator {
             }
         }
 
-        private void checkEvidence(String quote) {
+        private void checkEvidence(String quote, List<String> terms) {
             if (!evidence.isSupported(quote)) {
-                throw new Reject(EVIDENCE_NOT_FOUND, "evidence is not a quote from the input");
+                throw new Reject(EVIDENCE_NOT_FOUND, "evidence is not a substantial quote from the input");
+            }
+            if (!evidence.supports(quote, terms)) {
+                throw new Reject(EVIDENCE_NOT_FOUND, "neither the evidence nor its sentence mentions the claim's"
+                        + " subject, object or value");
             }
         }
 
         private void adjust(Adjustment.Kind kind, String message) {
-            adjusted.add(new Adjustment(index, op, kind, message));
+            pending.add(new Adjustment(index, op, kind, message));
         }
 
         private static String key(ResolvedEntity e) {

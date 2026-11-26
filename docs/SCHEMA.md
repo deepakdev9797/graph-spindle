@@ -474,9 +474,9 @@ All attribute predicates have cardinality ONE unless marked otherwise. Allowed v
 Rules:
 
 - `status = SUPERSEDED` on a Decision is set only by the engine, as a consequence of `REPLACES`. The LLM cannot assert it directly.
-- `URL` values must match `^https?://` or `^file:` with length ≤ 2000. They are validated by `java.net.URI` parsing only.
+- `URL` values must match `^https?://` or `^file:` with length ≤ 2000. They are validated by `java.net.URI` parsing, and URLs with user information (`https://user:password@host/`) are rejected (ADR-021).
 - `PARTIAL_DATE` values must match `^\d{4}(-\d{2}(-\d{2})?)?$` and be a valid calendar date.
-- `NUMBER` is reserved for custom attributes. It is stored as a canonical decimal string.
+- `NUMBER` is reserved for custom attributes. It is stored as a canonical decimal string. At most 38 significant digits and an exponent (scale) between -38 and 38 are accepted, so the plain form stays short.
 
 ### 6.5 What is never stored
 
@@ -505,11 +505,11 @@ Applied in this order:
 3. Trim and collapse internal whitespace to a single space.
 4. Lowercase with `Locale.ROOT`.
 5. Strip surrounding quotes and brackets and trailing `.,;:!?`.
-6. Remove diacritics: NFD, drop `\p{Mn}`, then NFC.
+6. Remove diacritics: NFD, drop the combining diacritical marks (U+0300–036F, U+1AB0–1AFF, U+1DC0–1DFF, U+20D0–20FF, U+FE20–FE2F), then NFC. Other non-spacing marks are letters of their scripts (Japanese voicing marks, Indic vowel signs, Hebrew/Arabic points) and are kept, so ガス ≠ カス and मुंबई ≠ मबई (ADR-021).
 7. Remove a leading `the `.
-8. Truncate to 200 code points.
+8. Truncate to 200 code points (a safety bound only, see below).
 
-Symbols such as `+ # . / -` are **kept**, so "C++", "C#" and "C" stay distinct. Results that are empty or longer than 200 are rejected. Normalization is pure and has a table-driven unit test.
+Symbols such as `+ # . / -` are **kept**, so "C++", "C#" and "C" stay distinct. Results that are empty or longer than 200 are rejected: validators compute steps 1–7 untruncated (`Normalizer.normUntruncated`) and reject a name or alias whose normalized form exceeds 200 code points (NFKC can expand a short input), so truncation can never make two distinct names share a `canonicalKey`. Normalization is pure and has a table-driven unit test.
 
 `canonicalKey = type.toLowerCase(Locale.ROOT) + ":" + normalizedName`. If an entity is created **explicitly as distinct** from an existing one with the same key (manual API only, flag `distinct=true`), the engine appends `~2`, `~3` and so on. The LLM can never request distinct creation, so a canonicalKey collision on LLM create always means "same entity".
 
@@ -519,7 +519,7 @@ Symbols such as `+ # . / -` are **kept**, so "C++", "C#" and "C" stay distinct. 
 objPart    = RELATION ? objectId : valueType + "|" + valueNorm
 activeKey  = sha256hex(brainId + "\u001f" + subjectId + "\u001f" + predicate + "\u001f" + objPart + "\u001f" + polarity)
 slotKey    = sha256hex(brainId + "\u001f" + subjectId + "\u001f" + predicate)      // only cardinality ONE, POSITIVE
-valueNorm  = STRING: norm(value);  ENUM: upper-case token;  PARTIAL_DATE: as given;  BOOLEAN: "true"/"false";
+valueNorm  = STRING: norm(value) without truncation (steps 1–7);  ENUM: upper-case token;  PARTIAL_DATE: as given;  BOOLEAN: "true"/"false";
              NUMBER: BigDecimal.stripTrailingZeros().toPlainString();  URL: §7.5 normalization
 ```
 
@@ -529,7 +529,7 @@ Both keys are written only while `status = ACTIVE` and removed (`REMOVE c.active
 
 - URL: lowercase the scheme and host, drop the default port, drop the fragment, keep the query, remove a trailing `/` on the path.
 - FILE: unify path separators to `/` and collapse `./` and duplicate `/`. Case is preserved.
-- Others: `norm()`.
+- Others: `norm()` without truncation (steps 1–7).
 
 The key is `(brainId, kind, locatorNorm)`.
 
@@ -847,9 +847,9 @@ Bounds, enforced by `VocabularyConfigValidator` when the config is saved:
 
 | Item | Rule |
 |---|---|
-| Custom entity type name | `^[A-Z][A-Za-z0-9]{1,39}$`. Not a core type, not a reserved label (§5.2). At most 20 per brain. Description ≤ 200. |
-| Custom relation predicate | `^[A-Z][A-Z0-9_]{1,39}$`. Not a system relationship type or core predicate. At most 30. Source and target types must be enabled. |
-| Attribute name | `^[a-z][A-Za-z0-9]{1,39}$`, unique per entity type, at most 10 per type. `valueType ∈ {STRING, ENUM, PARTIAL_DATE, BOOLEAN, NUMBER, URL}`. ENUM has at most 30 values, each matching `^[A-Z][A-Z0-9_]{0,39}$`. STRING `maxLength` ≤ 500. |
+| Custom entity type name | `^[A-Z][A-Za-z0-9]{1,39}$`. Not a core type, not a reserved label (§5.2), and unique, all compared **ignoring case** (the canonical key lowercases the type). At most 20 per brain. Description ≤ 200. |
+| Custom relation predicate | `^[A-Z][A-Z0-9_]{1,39}$`. Not a system relationship type or core predicate, ignoring case. At most 30. Source and target types must be enabled. |
+| Attribute name | `^[a-z][A-Za-z0-9]{1,39}$`, unique per entity type ignoring case, not a core predicate or custom relation name differing only in case, at most 10 per type. `valueType ∈ {STRING, ENUM, PARTIAL_DATE, BOOLEAN, NUMBER, URL}`. ENUM has at most 30 values, each matching `^[A-Z][A-Z0-9_]{0,39}$`. STRING `maxLength` ≤ 500. |
 | Disabling | `Person` cannot be disabled (the self entity), and system labels cannot be disabled. Disabling a type with existing entities is allowed: those entities become read-only for ingestion and remain retrievable. |
 | Removing a custom type or predicate | Rejected while active claims or entities use it (409), unless `force=true` from `BRAIN_ADMIN`, which archives them. |
 | Total | At most 40 entity types and 60 predicates enabled, which keeps the prompt within budget. |

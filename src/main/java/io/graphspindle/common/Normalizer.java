@@ -29,6 +29,17 @@ public final class Normalizer {
      * as {@code + # . / -} are kept, so "C++", "C#" and "C" stay distinct.
      */
     public static String norm(String input) {
+        // 8. truncate to 200 code points
+        return truncate(normUntruncated(input), MAX_NAME_CODE_POINTS).strip();
+    }
+
+    /**
+     * Steps 1 to 7 of {@code norm(s)} without the final truncation. Validators use this form and
+     * <em>reject</em> names whose result is longer than {@link #MAX_NAME_CODE_POINTS} (NFKC can
+     * expand a short input), so truncation can never make two distinct names share a canonical key.
+     * Attribute {@code valueNorm}s and locator keys use it so long values never collide.
+     */
+    public static String normUntruncated(String input) {
         if (input == null) {
             return "";
         }
@@ -49,8 +60,7 @@ public final class Normalizer {
             s = s.substring(4).strip();
             s = stripSurroundings(s);
         }
-        // 8. truncate to 200 code points
-        return truncate(s, MAX_NAME_CODE_POINTS).strip();
+        return s.strip();
     }
 
     /** {@link #norm(String)} as an optional that is empty when the result is empty. */
@@ -91,11 +101,6 @@ public final class Normalizer {
                 return trimmed;
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-            String host = uri.getHost() == null ? null : uri.getHost().toLowerCase(Locale.ROOT);
-            int port = uri.getPort();
-            if ((port == 80 && scheme.equals("http")) || (port == 443 && scheme.equals("https"))) {
-                port = -1;
-            }
             String path = uri.getRawPath() == null ? "" : uri.getRawPath();
             while (path.length() > 1 && path.endsWith("/")) {
                 path = path.substring(0, path.length() - 1);
@@ -104,15 +109,9 @@ public final class Normalizer {
                 path = "";
             }
             StringBuilder out = new StringBuilder(scheme).append(':');
-            if (host != null || uri.getRawAuthority() != null) {
-                out.append("//");
-                if (uri.getRawUserInfo() != null) {
-                    out.append(uri.getRawUserInfo()).append('@');
-                }
-                out.append(host != null ? host : uri.getRawAuthority());
-                if (host != null && port != -1) {
-                    out.append(':').append(port);
-                }
+            String authority = uri.getRawAuthority();
+            if (authority != null) {
+                out.append("//").append(normalizeAuthority(scheme, authority));
             }
             out.append(path);
             if (uri.getRawQuery() != null) {
@@ -122,6 +121,55 @@ public final class Normalizer {
         } catch (URISyntaxException e) {
             return trimmed;
         }
+    }
+
+    /**
+     * True when the URL has an authority with user information ({@code user:password@host}). The
+     * authority is parsed by hand because {@link URI} leaves host and user info null for
+     * registry-based authorities such as hosts containing {@code _}.
+     */
+    public static boolean hasUserInfo(String url) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            String authority = new URI(url.strip()).getRawAuthority();
+            return authority != null && authority.indexOf('@') >= 0;
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
+    /**
+     * {@code [userinfo@]host[:port]}, parsed by hand so that registry-based authorities (for which
+     * {@link URI#getHost()} is null) are normalized the same way: host lowercased, default port dropped.
+     */
+    private static String normalizeAuthority(String scheme, String authority) {
+        int at = authority.lastIndexOf('@');
+        String userInfo = at >= 0 ? authority.substring(0, at) : null;
+        String hostPort = at >= 0 ? authority.substring(at + 1) : authority;
+        String host = hostPort;
+        String port = null;
+        int colon = hostPort.lastIndexOf(':');
+        int bracket = hostPort.lastIndexOf(']');
+        if (colon > bracket) {
+            host = hostPort.substring(0, colon);
+            port = hostPort.substring(colon + 1);
+        }
+        host = host.toLowerCase(Locale.ROOT);
+        if (port != null && (port.isEmpty() || (port.equals("80") && scheme.equals("http"))
+                || (port.equals("443") && scheme.equals("https")))) {
+            port = null;
+        }
+        StringBuilder out = new StringBuilder();
+        if (userInfo != null) {
+            out.append(userInfo).append('@');
+        }
+        out.append(host);
+        if (port != null) {
+            out.append(':').append(port);
+        }
+        return out.toString();
     }
 
     /**
@@ -223,16 +271,27 @@ public final class Normalizer {
         return "\"'`“”‘’«»„‚‹›".indexOf(c) >= 0;
     }
 
-    private static String removeDiacritics(String s) {
+    /**
+     * NFD, drop the code points of the combining <em>diacritical</em> mark blocks, NFC. Other
+     * non-spacing marks are meaningful letters in their scripts (Japanese voicing marks, Indic vowel
+     * signs, Hebrew and Arabic vowel points ...) and are kept, so ガス and カス stay distinct.
+     */
+    public static String removeDiacritics(String s) {
         String decomposed = java.text.Normalizer.normalize(s, Form.NFD);
         StringBuilder out = new StringBuilder(decomposed.length());
         for (int i = 0; i < decomposed.length(); ) {
             int cp = decomposed.codePointAt(i);
             i += Character.charCount(cp);
-            if (Character.getType(cp) != Character.NON_SPACING_MARK) {
+            if (!isCombiningDiacritic(cp)) {
                 out.appendCodePoint(cp);
             }
         }
         return java.text.Normalizer.normalize(out, Form.NFC);
+    }
+
+    /** U+0300–036F, U+1AB0–1AFF, U+1DC0–1DFF, U+20D0–20FF and U+FE20–FE2F. */
+    static boolean isCombiningDiacritic(int cp) {
+        return (cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF)
+                || (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE20 && cp <= 0xFE2F);
     }
 }

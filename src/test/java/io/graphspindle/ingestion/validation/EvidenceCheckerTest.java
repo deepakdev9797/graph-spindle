@@ -16,7 +16,7 @@ class EvidenceCheckerTest {
     @ParameterizedTest
     @ValueSource(strings = {"I am building GraphSpindle", "building graphspindle IN JAVA", "Java. It uses Neo4j",
             "It uses Neo4j and Spring AI", "  uses neo4j  ", "We're switching", "the \"MIT\" license",
-            "We’re switching", "Neo​4j and", "ARCHITECTURE of graphspindle", "ｊａｖａ"})
+            "We’re switching", "Neo​4j and", "ARCHITECTURE of graphspindle", "ｂｕｉｌｄｉｎｇ ＧｒａｐｈＳｐｉｎｄｌｅ"})
     void acceptsVerbatimQuotesModuloWhitespaceCaseAndQuotes(String evidence) {
         assertThat(checker.isSupported(evidence)).isTrue();
     }

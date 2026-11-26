@@ -1,5 +1,6 @@
 package io.graphspindle.ingestion.validation;
 
+import io.graphspindle.common.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -41,10 +42,38 @@ public final class SecretScanner {
         this.patterns = List.copyOf(all);
     }
 
+    /**
+     * True when the text, or its folded form ({@link #fold}: NFKC with control and format characters
+     * removed), matches a pattern. Scanning the folded form too means a secret split by zero-width
+     * characters or written in full-width letters is caught: names and values are stored after the
+     * same folding, so the stored form would otherwise contain the real token.
+     */
     public boolean containsSecret(String text) {
         if (text == null || text.isEmpty()) {
             return false;
         }
+        return matchesAny(text) || matchesAny(fold(text));
+    }
+
+    /**
+     * Replaces every match with {@value #REDACTED}. When a secret is only visible in the folded
+     * form, the folded text is redacted and returned instead (formatting is lost, the secret too).
+     */
+    public String redact(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String out = replaceAll(text);
+        String folded = fold(out);
+        return matchesAny(folded) ? replaceAll(folded) : out;
+    }
+
+    /** NFKC, control and format characters removed, whitespace collapsed (case is preserved). */
+    static String fold(String text) {
+        return Normalizer.normalizeWhitespace(text);
+    }
+
+    private boolean matchesAny(String text) {
         for (Pattern p : patterns) {
             if (p.matcher(text).find()) {
                 return true;
@@ -53,11 +82,7 @@ public final class SecretScanner {
         return false;
     }
 
-    /** Replaces every match with {@value #REDACTED}. */
-    public String redact(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
+    private String replaceAll(String text) {
         String out = text;
         for (Pattern p : patterns) {
             Matcher m = p.matcher(out);

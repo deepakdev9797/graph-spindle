@@ -115,9 +115,38 @@ public final class ProposalParser {
             if (isEnvelope(node)) {
                 return node;
             }
-            from = raw.indexOf('{', from + 1);
+            // Only top-level objects are candidates: an object nested inside a span that was already
+            // tried (parsed or rejected, e.g. for duplicate keys) must not rescue it (ADR-021).
+            int end = objectEnd(raw, from);
+            from = raw.indexOf('{', end < 0 ? from + 1 : end + 1);
         }
         throw new MalformedModelOutputException("no JSON object with an operations array found");
+    }
+
+    /**
+     * Index of the brace closing the object that starts at {@code start}, honouring JSON strings
+     * and escapes; -1 when it is never closed (then the brace was probably prose). Linear.
+     */
+    static int objectEnd(String text, int start) {
+        int depth = 0;
+        boolean inString = false;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == '"') {
+                    inString = false;
+                }
+            } else if (c == '"') {
+                inString = true;
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Content of the first markdown code fence, or null. A missing closing fence takes the rest. */

@@ -165,7 +165,7 @@ Each rule has a stable code, returned in `IngestResult.rejected[]`.
 | `UNKNOWN_HANDLE` | The `id` or `claimId` is not in this ingestion's candidate set, or a `ref` is not defined earlier in the proposal |
 | `DUPLICATE_REF` | The same `ref` is defined twice |
 | `TYPE_INCOMPATIBLE_MATCH` | A mention resolves to a candidate of an incompatible type |
-| `EVIDENCE_NOT_FOUND` | `evidence` is not a substring of the (redacted) content or of a source summary after whitespace and case normalization. Exactly what blocks invented facts. |
+| `EVIDENCE_NOT_FOUND` | `evidence` is not a substring of the (redacted) content or of a source summary after whitespace and case normalization, is too short to prove anything, or neither the quote nor its sentence mentions the claim's subject, object or value (ADR-021). Exactly what blocks invented facts. |
 | `SELF_LOOP` | Subject equals object |
 | `LIMIT_EXCEEDED` | More than the allowed operations, entities, aliases or claims per subject |
 | `LOW_CONFIDENCE` | Confidence is below the brain `minConfidence` (default 0.5). The op is dropped. |

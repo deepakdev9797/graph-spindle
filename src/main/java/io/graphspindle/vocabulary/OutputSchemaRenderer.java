@@ -108,7 +108,8 @@ public final class OutputSchemaRenderer {
         p.set("subject", entityTarget());
         p.set("predicate", enumOf(new ArrayList<>(predicates)));
         p.set("object", entityTarget());
-        ObjectNode value = string(500);
+        // the longest literal any attribute accepts (URL values may have up to 2000 characters)
+        ObjectNode value = string(AttributeValues.MAX_VALUE_LENGTH);
         value.put("description", "literal value for attribute predicates");
         p.set("value", value);
         p.set("polarity", enumOf(List.of("POSITIVE", "NEGATIVE")));

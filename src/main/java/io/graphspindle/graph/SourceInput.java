@@ -33,7 +33,8 @@ public record SourceInput(String kind, String locator, String title, String summ
         return switch (kind) {
             case "URL" -> Normalizer.normalizeUrl(locator);
             case "FILE" -> Normalizer.normalizeFilePath(locator);
-            default -> Normalizer.norm(locator).isEmpty() ? locator.strip() : Normalizer.norm(locator);
+            default -> Normalizer.normUntruncated(locator).isEmpty() ? locator.strip()
+                    : Normalizer.normUntruncated(locator);
         };
     }
 

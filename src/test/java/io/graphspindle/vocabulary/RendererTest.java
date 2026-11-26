@@ -74,6 +74,9 @@ class RendererTest {
         assertClaim.get("properties").get("predicate").get("enum").forEach(p -> predicates.add(p.stringValue()));
         assertThat(predicates).hasSize(28 + 13).contains("USES", "status", "homepage");
         assertThat(assertClaim.get("properties").get("evidence").get("maxLength").intValue()).isEqualTo(300);
+        // value must admit the longest attribute literal (homepage URLs up to 2000), not 500
+        assertThat(assertClaim.get("properties").get("value").get("maxLength").intValue())
+                .isEqualTo(AttributeValues.MAX_VALUE_LENGTH);
         assertThat(assertClaim.get("oneOf")).hasSize(2);
         JsonNode supersede = ops.get("items").get("oneOf").get(4);
         assertThat(supersede.get("properties").get("replacement").get("properties").has("op")).isFalse();
