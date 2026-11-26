@@ -299,7 +299,8 @@ Types: `String(n)` is a string with at most n Unicode code points. `Enum` values
 | Property | Type | R/O | Notes |
 |---|---|---|---|
 | `brainId`, `id` | String | R | |
-| `requestId` | String(100) | R | Client idempotency key; generated if the client omits it |
+| `requestId` | String(100) | R | Client idempotency key; generated if the client omits it. Removed (moved to `releasedRequestId`) when a FAILED ingestion with a transient error (`LLM_UNAVAILABLE`, `STALE`) is retried with the same key (ADR-031) |
+| `releasedRequestId` | String(100) | O | The requestId this FAILED ingestion gave up for a retry (ADR-031) |
 | `contentHash` | String(64) | R | SHA-256 hex of the canonical payload (ARCHITECTURE §6) |
 | `contentType` | Enum `CONVERSATION` \| `NOTE` \| `OBSERVATION` \| `DOCUMENT_SUMMARY` \| `OTHER` | R | |
 | `contentLength` | Integer | R | |

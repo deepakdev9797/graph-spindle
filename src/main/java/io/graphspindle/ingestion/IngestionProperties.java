@@ -14,7 +14,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record IngestionProperties(List<String> correctionCues) {
 
     public static final List<String> DEFAULT_CORRECTION_CUES = List.of("actually", "correction", "corrected",
-            "change of plan", "changed", "changing", "switched", "switching", "switch to", "no longer", "not anymore",
+            "change of plan", "has changed", "have changed",
+            "re:(?<![\\p{L}\\p{N}])chang(?:ed|ing)\\s+(?:[^.!?;\\n]{0,60}?\\s+)?(?:to|from|over)(?![\\p{L}\\p{N}])",
+            "switched", "switching", "switch to", "no longer", "not anymore",
             "instead", "moved to", "moving to", "migrated", "now uses", "now use", "now using", "replaced",
             "replacing", "was wrong", "is wrong", "mistake", "rather than");
 

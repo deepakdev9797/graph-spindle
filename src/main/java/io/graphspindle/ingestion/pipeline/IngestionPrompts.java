@@ -4,16 +4,21 @@ import io.graphspindle.common.Limits;
 import io.graphspindle.common.Normalizer;
 import io.graphspindle.llm.DataBlocks;
 import io.graphspindle.llm.PromptTemplate;
+import io.graphspindle.llm.TokenEstimator;
 import io.graphspindle.vocabulary.BrainVocabulary;
 import io.graphspindle.vocabulary.OutputSchemaRenderer;
 import io.graphspindle.vocabulary.PromptVocabularyRenderer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -37,13 +42,37 @@ public final class IngestionPrompts {
     /** Repair calls see at most this much of the broken output (ARCHITECTURE §4.3). */
     public static final int REPAIR_MAX_PREVIOUS_CHARS = 8 * 1024;
     public static final int CANDIDATE_DESCRIPTION_CHARS = 300;
+    /** Per-field caps in the candidates block (ADR-031). */
+    public static final int CANDIDATE_TEXT_CHARS = 200;
+    public static final int CANDIDATE_ALIAS_CHARS = 100;
+    public static final int CANDIDATE_MAX_ALIASES = 3;
+    /** Default estimated-token budgets of the candidates block and of the extraction hint (ADR-031). */
+    public static final int DEFAULT_CANDIDATE_TOKENS = 8_000;
+    public static final int DEFAULT_EXTRACTION_TOKENS = 3_000;
 
     private final PromptVocabularyRenderer vocabularyRenderer = new PromptVocabularyRenderer();
     private final OutputSchemaRenderer schemaRenderer = new OutputSchemaRenderer();
     private final JsonMapper json = JsonMapper.builder().build();
     private final Map<String, PromptTemplate> templates = new LinkedHashMap<>();
+    private final int candidateTokens;
+    private final int extractionTokens;
 
     public IngestionPrompts() {
+        this(DEFAULT_CANDIDATE_TOKENS, DEFAULT_EXTRACTION_TOKENS);
+    }
+
+    /**
+     * @param candidateTokens estimated-token budget of the candidates block: lower-ranked candidates
+     *     are left out beyond it
+     * @param extractionTokens estimated-token budget of the extraction hint: trailing statements, then
+     *     mentions are left out beyond it
+     */
+    public IngestionPrompts(int candidateTokens, int extractionTokens) {
+        if (candidateTokens < 100 || extractionTokens < 100) {
+            throw new IllegalArgumentException("prompt budgets must be at least 100 tokens");
+        }
+        this.candidateTokens = candidateTokens;
+        this.extractionTokens = extractionTokens;
         for (String id : List.of(EXTRACT + ".system", EXTRACT + ".user", RECONCILE + ".system", RECONCILE + ".user",
                 REPAIR + ".system", REPAIR + ".user")) {
             templates.put(id, PromptTemplate.load(id));
@@ -58,11 +87,22 @@ public final class IngestionPrompts {
     public record Speaker(String type, String name) {
     }
 
-    /** An existing entity offered to the reconcile stage under its handle. */
-    public record PromptEntity(String handle, String type, String name, List<String> aliases, String description) {
+    /**
+     * An existing entity offered to the reconcile stage under its handle.
+     *
+     * @param rank how well it matches a mention (its best candidate score, ADR-030); higher ranks are
+     *     kept when the candidates block is over budget. Null for a context-only entity (the object of
+     *     a candidate's claim), which is shown only while a claim shown needs it.
+     */
+    public record PromptEntity(String handle, String type, String name, List<String> aliases, String description,
+            Double rank) {
         public PromptEntity {
             Objects.requireNonNull(handle, "handle");
             aliases = aliases == null ? List.of() : List.copyOf(aliases);
+        }
+
+        public PromptEntity(String handle, String type, String name, List<String> aliases, String description) {
+            this(handle, type, name, aliases, description, 0.0);
         }
     }
 
@@ -110,7 +150,7 @@ public final class IngestionPrompts {
 
     public RenderedPrompt reconcile(Input in) {
         String candidates = candidatesText(in.entities(), in.claims());
-        String extraction = in.extraction() == null || in.extraction().isBlank() ? "{}" : in.extraction().strip();
+        String extraction = boundedExtraction(in.extraction());
         DataBlocks blocks = blocksFor(in, List.of(candidates, extraction));
         String system = templates.get(RECONCILE + ".system").render(Map.of(
                 "nonce", blocks.nonce(),
@@ -253,46 +293,196 @@ public final class IngestionPrompts {
         }
     }
 
-    /** One JSON object per line: entities first, then claims. */
+    /**
+     * One JSON object per line: entities first, then claims, within the candidates budget (ADR-031).
+     * Texts are capped per field. Over budget, the lowest-ranked items are left out first: a claim
+     * ranks as its subject, and goes before an entity of the same rank; leaving out an entity leaves
+     * out its claims. A context-only entity is shown only while a shown claim needs it; the speaker
+     * {@code P0} always stays.
+     */
     String candidatesText(List<PromptEntity> entities, List<PromptClaim> claims) {
+        if (entities.isEmpty() && claims.isEmpty()) {
+            return "(no existing candidates)\n";
+        }
+        Map<String, PromptEntity> byHandle = new LinkedHashMap<>();
+        entities.forEach(e -> byHandle.put(e.handle(), e));
+        long[] entityTokens = new long[entities.size()];
+        long[] claimTokens = new long[claims.size()];
+        List<String> entityLines = new ArrayList<>();
+        List<String> claimLines = new ArrayList<>();
+        for (int i = 0; i < entities.size(); i++) {
+            entityLines.add(entityLine(entities.get(i)));
+            entityTokens[i] = TokenEstimator.estimate(entityLines.get(i)) + 1;
+        }
+        for (int i = 0; i < claims.size(); i++) {
+            claimLines.add(claimLine(claims.get(i)));
+            claimTokens[i] = TokenEstimator.estimate(claimLines.get(i)) + 1;
+        }
+        boolean[] entityShown = new boolean[entities.size()];
+        boolean[] claimShown = new boolean[claims.size()];
+        Arrays.fill(entityShown, true);
+        Arrays.fill(claimShown, true);
+        // drop order: rank ascending, claims before entities, later before earlier (index encodes both)
+        List<int[]> order = new ArrayList<>(); // {kind 0=claim 1=entity, index}
+        for (int i = 0; i < claims.size(); i++) {
+            order.add(new int[] {0, i});
+        }
+        for (int i = 0; i < entities.size(); i++) {
+            PromptEntity e = entities.get(i);
+            if (e.rank() != null && !"P0".equals(e.handle())) {
+                order.add(new int[] {1, i});
+            }
+        }
+        order.sort(Comparator.<int[]>comparingDouble(o -> o[0] == 0 ? rankOf(byHandle.get(claims.get(o[1])
+                .subject())) : rankOf(entities.get(o[1]))).thenComparingInt(o -> o[0])
+                .thenComparing(o -> o[1], Comparator.reverseOrder()));
+        long total = shownTokens(entities, claims, entityShown, claimShown, entityTokens, claimTokens);
+        for (int[] o : order) {
+            if (total <= candidateTokens) {
+                break;
+            }
+            if (o[0] == 0) {
+                claimShown[o[1]] = false;
+            } else {
+                entityShown[o[1]] = false;
+                String h = entities.get(o[1]).handle();
+                for (int j = 0; j < claims.size(); j++) {
+                    if (h.equals(claims.get(j).subject()) || h.equals(claims.get(j).object())) {
+                        claimShown[j] = false;
+                    }
+                }
+            }
+            total = shownTokens(entities, claims, entityShown, claimShown, entityTokens, claimTokens);
+        }
         StringBuilder sb = new StringBuilder();
-        for (PromptEntity e : entities) {
-            ObjectNode n = json.createObjectNode();
-            n.put("id", e.handle());
-            n.put("type", e.type());
-            n.put("name", e.name());
-            if (!e.aliases().isEmpty()) {
-                ArrayNode a = n.putArray("aliases");
-                e.aliases().forEach(a::add);
+        int omitted = 0;
+        Set<String> needed = neededContext(claims, claimShown);
+        for (int i = 0; i < entities.size(); i++) {
+            if (visible(entities.get(i), entityShown[i], needed)) {
+                sb.append(entityLines.get(i)).append('\n');
+            } else {
+                omitted++;
             }
-            if (e.description() != null && !e.description().isBlank()) {
-                n.put("description", Normalizer.truncate(e.description().strip(), CANDIDATE_DESCRIPTION_CHARS));
-            }
-            sb.append(json.writeValueAsString(n)).append('\n');
         }
-        for (PromptClaim c : claims) {
-            ObjectNode n = json.createObjectNode();
-            n.put("claimId", c.handle());
-            n.putObject("subject").put("id", c.subject());
-            n.put("predicate", c.predicate());
-            if (c.object() != null) {
-                n.putObject("object").put("id", c.object());
+        for (int i = 0; i < claims.size(); i++) {
+            if (claimShown[i]) {
+                sb.append(claimLines.get(i)).append('\n');
+            } else {
+                omitted++;
             }
-            if (c.value() != null) {
-                n.put("value", c.value());
-            }
-            if (c.polarity() != null && !"POSITIVE".equals(c.polarity())) {
-                n.put("polarity", c.polarity());
-            }
-            if (c.statement() != null) {
-                n.put("statement", c.statement());
-            }
-            if ("MANUAL".equals(c.origin())) {
-                n.put("protected", true);
-            }
-            sb.append(json.writeValueAsString(n)).append('\n');
         }
-        return sb.isEmpty() ? "(no existing candidates)\n" : sb.toString();
+        if (omitted > 0) {
+            sb.append("(").append(omitted).append(" lower-ranked candidates omitted for length)\n");
+        }
+        return sb.toString();
+    }
+
+    private static Set<String> neededContext(List<PromptClaim> claims, boolean[] claimShown) {
+        Set<String> needed = new HashSet<>();
+        for (int i = 0; i < claims.size(); i++) {
+            if (claimShown[i]) {
+                needed.add(claims.get(i).subject());
+                needed.add(claims.get(i).object());
+            }
+        }
+        return needed;
+    }
+
+    private static boolean visible(PromptEntity e, boolean shown, Set<String> needed) {
+        return shown && (e.rank() != null || needed.contains(e.handle()));
+    }
+
+    private static long shownTokens(List<PromptEntity> entities, List<PromptClaim> claims, boolean[] entityShown,
+            boolean[] claimShown, long[] entityTokens, long[] claimTokens) {
+        Set<String> needed = neededContext(claims, claimShown);
+        long total = 0;
+        for (int i = 0; i < entities.size(); i++) {
+            if (visible(entities.get(i), entityShown[i], needed)) {
+                total += entityTokens[i];
+            }
+        }
+        for (int i = 0; i < claims.size(); i++) {
+            if (claimShown[i]) {
+                total += claimTokens[i];
+            }
+        }
+        return total;
+    }
+
+    private static double rankOf(PromptEntity e) {
+        return e == null || e.rank() == null ? -1.0 : e.rank();
+    }
+
+    private String entityLine(PromptEntity e) {
+        ObjectNode n = json.createObjectNode();
+        n.put("id", e.handle());
+        n.put("type", e.type());
+        n.put("name", Normalizer.truncate(e.name(), CANDIDATE_TEXT_CHARS));
+        if (!e.aliases().isEmpty()) {
+            ArrayNode a = n.putArray("aliases");
+            e.aliases().stream().limit(CANDIDATE_MAX_ALIASES)
+                    .forEach(x -> a.add(Normalizer.truncate(x, CANDIDATE_ALIAS_CHARS)));
+        }
+        if (e.description() != null && !e.description().isBlank()) {
+            n.put("description", Normalizer.truncate(e.description().strip(), CANDIDATE_DESCRIPTION_CHARS));
+        }
+        return json.writeValueAsString(n);
+    }
+
+    private String claimLine(PromptClaim c) {
+        ObjectNode n = json.createObjectNode();
+        n.put("claimId", c.handle());
+        n.putObject("subject").put("id", c.subject());
+        n.put("predicate", c.predicate());
+        if (c.object() != null) {
+            n.putObject("object").put("id", c.object());
+        }
+        if (c.value() != null) {
+            n.put("value", Normalizer.truncate(c.value(), CANDIDATE_TEXT_CHARS));
+        }
+        if (c.polarity() != null && !"POSITIVE".equals(c.polarity())) {
+            n.put("polarity", c.polarity());
+        }
+        if (c.statement() != null) {
+            n.put("statement", Normalizer.truncate(c.statement(), CANDIDATE_TEXT_CHARS));
+        }
+        if ("MANUAL".equals(c.origin())) {
+            n.put("protected", true);
+        }
+        return json.writeValueAsString(n);
+    }
+
+    /**
+     * The extraction hint within its budget (ADR-031): trailing statements, then trailing mentions
+     * are left out; an unreadable or still oversize hint becomes {@code {}}.
+     */
+    String boundedExtraction(String extraction) {
+        String e = extraction == null || extraction.isBlank() ? "{}" : extraction.strip();
+        if (TokenEstimator.estimate(e) <= extractionTokens) {
+            return e;
+        }
+        JsonNode root;
+        try {
+            root = json.readTree(e);
+        } catch (RuntimeException ex) {
+            return "{}";
+        }
+        if (!(root instanceof ObjectNode o)) {
+            return "{}";
+        }
+        for (String field : List.of("statements", "mentions")) {
+            if (o.get(field) instanceof ArrayNode a) {
+                while (!a.isEmpty() && TokenEstimator.estimate(json.writeValueAsString(o))
+                        > extractionTokens) {
+                    a.remove(a.size() - 1);
+                }
+            }
+        }
+        if (o.get("summary") != null && o.get("summary").isString()) {
+            o.put("summary", Normalizer.truncate(o.get("summary").stringValue(), 500));
+        }
+        String out = json.writeValueAsString(o);
+        return TokenEstimator.estimate(out) <= extractionTokens ? out : "{}";
     }
 
     /** JSON Schema of the stage-1 ExtractionResult (ARCHITECTURE §3), with vocabulary enums. */

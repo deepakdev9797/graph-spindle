@@ -2,6 +2,7 @@ package io.graphspindle.ingestion.pipeline;
 
 import io.graphspindle.brain.BrainConfig;
 import io.graphspindle.common.BrainScope;
+import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.Limits;
 import io.graphspindle.common.Normalizer;
 import io.graphspindle.common.Origin;
@@ -30,6 +31,7 @@ import io.graphspindle.llm.LlmException;
 import io.graphspindle.llm.LlmProperties;
 import io.graphspindle.llm.LlmReply;
 import io.graphspindle.llm.LlmRequest;
+import io.graphspindle.llm.TokenEstimator;
 import io.graphspindle.vocabulary.BrainVocabulary;
 import java.time.Duration;
 import java.time.Instant;
@@ -61,7 +63,7 @@ public class IngestionPipeline {
     private final LlmProperties llmProperties;
     private final CandidateStage candidateStage;
     private final GraphStore graph;
-    private final IngestionPrompts prompts = new IngestionPrompts();
+    private final IngestionPrompts prompts;
     private final OperationValidator validator = new OperationValidator();
     private final CorrectionCues cues;
     private final JsonMapper json = JsonMapper.builder().build();
@@ -73,6 +75,17 @@ public class IngestionPipeline {
         this.candidateStage = candidateStage;
         this.graph = graph;
         this.cues = new CorrectionCues(properties.correctionCues());
+        this.prompts = new IngestionPrompts(candidateTokens(llmProperties), extractionTokens(llmProperties));
+    }
+
+    /** A quarter of the context for the candidates block (ADR-031), within [1k, 16k] estimated tokens. */
+    static int candidateTokens(LlmProperties p) {
+        return Math.clamp(p.contextTokens() / 4, 1_000, 16_000);
+    }
+
+    /** A tenth of the context for the extraction hint (ADR-031), within [500, 6k] estimated tokens. */
+    static int extractionTokens(LlmProperties p) {
+        return Math.clamp(p.contextTokens() / 10, 500, 6_000);
     }
 
     /**
@@ -128,11 +141,20 @@ public class IngestionPipeline {
             }
             Duration timeout = remaining.compareTo(llmProperties.callTimeout()) < 0 ? remaining
                     : llmProperties.callTimeout();
+            LlmRequest request = new LlmRequest(p.promptId(), p.system(), p.user(), schema, repair, timeout);
+            // never send a prompt that cannot fit: providers truncate silently (ADR-031)
+            long estimate = TokenEstimator.estimate(request) + llmProperties.maxOutputTokens();
+            if (estimate > llmProperties.contextTokens()) {
+                throw new PipelineFailure(ErrorCode.LIMIT_EXCEEDED.name(), "the " + p.promptId() + " prompt (about "
+                        + (estimate - llmProperties.maxOutputTokens()) + " tokens plus " + llmProperties.maxOutputTokens()
+                        + " output tokens) does not fit the model context (graphspindle.llm.context-tokens = "
+                        + llmProperties.contextTokens() + "); nothing was sent", info(), null);
+            }
             calls++;
             if (repair) {
                 repairs++;
             }
-            LlmReply r = llm.complete(new LlmRequest(p.promptId(), p.system(), p.user(), schema, repair, timeout));
+            LlmReply r = llm.complete(request);
             millis += r.millis();
             promptTokens = add(promptTokens, r.promptTokens());
             completionTokens = add(completionTokens, r.completionTokens());

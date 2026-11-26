@@ -23,6 +23,7 @@ import io.graphspindle.ingestion.validation.SecretScanner;
 import io.graphspindle.llm.IngestionLlm;
 import io.graphspindle.llm.LlmProperties;
 import io.graphspindle.vocabulary.BrainVocabulary;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +58,12 @@ public class IngestionService {
     static final int MAX_STORED_RESULT_CHARS = 200_000;
     /** Rough prompt overhead in tokens (rules, vocabulary, schema, candidates) besides content and sources. */
     static final int PROMPT_OVERHEAD_TOKENS = 12_000;
+    /** A RECEIVED ingestion older than the LLM time budget plus this margin is stale (ADR-031). */
+    public static final Duration STALE_MARGIN = Duration.ofMinutes(5);
+    /** Error code of an ingestion that never completed (its process died or gave up). */
+    public static final String STALE = "STALE";
+    /** Failures a client may retry with the same requestId (ADR-031): nothing was applied, the cause is transient. */
+    static final Set<String> RETRYABLE_FAILURES = Set.of(ErrorCode.LLM_UNAVAILABLE.name(), STALE);
 
     private final BrainService brains;
     private final IngestionStore store;
@@ -145,7 +152,12 @@ public class IngestionService {
                     0, List.of(), List.of(), List.of(), Map.of(), List.of(), f.llm(),
                     new IngestResult.Error(f.code(), f.getMessage()), received, Instant.now(), true);
             if (ingestionId != null) {
-                store.markFailed(scope, ingestionId, report(failed.error()));
+                try {
+                    store.markFailed(scope, ingestionId, report(failed.error()));
+                } catch (RuntimeException e) {
+                    // the record stays RECEIVED and is swept as stale later (ADR-031)
+                    log.warn("ingestion {}: could not be marked FAILED ({})", ingestionId, e.getClass().getSimpleName());
+                }
                 storeResult(scope, ingestionId, failed);
             }
             return failed;
@@ -244,6 +256,10 @@ public class IngestionService {
             if (s == null) {
                 throw GraphSpindleException.validation("sources must not contain null");
             }
+            if (secrets.containsSecret(s.mediaType()) || secrets.containsSecret(s.contentHash())) {
+                // these fields are stored as given, so they are refused rather than redacted (ADR-031)
+                throw GraphSpindleException.validation("source mediaType/contentHash looks like a credential");
+            }
             sources.add(new SourceInput(s.kind(), secrets.redact(s.locator()), secrets.redact(s.title()),
                     secrets.redact(s.summary()), s.mediaType(), s.contentHash()));
         }
@@ -305,10 +321,42 @@ public class IngestionService {
                     + " different content", Map.of("requestId", requestId, "ingestionId", rec.id()), null);
         }
         if ("RECEIVED".equals(rec.status())) {
-            throw new GraphSpindleException(ErrorCode.IN_PROGRESS, "an ingestion with this requestId is in progress",
-                    Map.of("requestId", requestId, "ingestionId", rec.id()), null);
+            if (rec.receivedAt() == null || !rec.receivedAt().isBefore(staleCutoff())
+                    || markStale(scope, rec.id()) == 0) {
+                throw new GraphSpindleException(ErrorCode.IN_PROGRESS, "an ingestion with this requestId is in"
+                        + " progress", Map.of("requestId", requestId, "ingestionId", rec.id()), null);
+            }
+            rec = store.find(scope, rec.id()).orElse(rec);
         }
-        return Optional.of(toResult(rec).asReplay());
+        IngestResult previous = toResult(rec);
+        if ("FAILED".equals(rec.status()) && previous.error() != null
+                && RETRYABLE_FAILURES.contains(previous.error().code()) && store.releaseRequestId(scope, rec.id())) {
+            // nothing was applied and the cause was transient: the same requestId runs again (ADR-031)
+            log.info("ingestion {} failed with {}; requestId released for a retry", rec.id(), previous.error().code());
+            return Optional.empty();
+        }
+        return Optional.of(previous.asReplay());
+    }
+
+    /** RECEIVED ingestions received before this instant are stale (ADR-031). */
+    public Instant staleCutoff() {
+        return Instant.now().minus(llmProperties.timeout()).minus(STALE_MARGIN);
+    }
+
+    /**
+     * Marks the stale RECEIVED ingestion {@code ingestionId} (or, with null, every stale ingestion of
+     * the brain) FAILED with code {@value #STALE}. Returns how many were marked.
+     */
+    public int markStale(BrainScope scope, String ingestionId) {
+        IngestResult.Error err = new IngestResult.Error(STALE, "the ingestion did not complete within the LLM time"
+                + " budget (the server stopped or gave up); nothing was applied");
+        List<String> ids = store.markStale(scope, ingestionId, staleCutoff(), report(err));
+        for (String id : ids) {
+            store.find(scope, id).ifPresent(r -> storeResult(scope, id, new IngestResult(id, r.requestId(), "FAILED",
+                    false, null, false, null, 0, 0, 0, List.of(), List.of(), List.of(), Map.of(), List.of(), null, err,
+                    r.receivedAt(), r.completedAt(), true)));
+        }
+        return ids.size();
     }
 
     private IngestResult toResult(IngestionRecord rec) {

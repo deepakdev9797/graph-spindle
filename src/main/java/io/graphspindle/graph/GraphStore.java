@@ -65,6 +65,8 @@ import org.springframework.stereotype.Component;
 public class GraphStore {
 
     private static final Logger log = LoggerFactory.getLogger(GraphStore.class);
+    /** Decision predicates the model never rewrites (ADR-028 §6, ADR-031). */
+    static final java.util.Set<String> IMMUTABLE_DECISION_PREDICATES = java.util.Set.of("CHOOSES", "REJECTS");
 
     private final GraphTransactions transactions;
     private final EntityStore entities;
@@ -172,6 +174,15 @@ public class GraphStore {
 
         private boolean manual() {
             return req.origin() == Origin.MANUAL;
+        }
+
+        /**
+         * A Decision's CHOOSES/REJECTS is history (ADR-028 §6): the model never rewrites it, not even
+         * through LATEST_WINS; a change is a new Decision that REPLACES the old one (ADR-031).
+         */
+        private boolean immutableForModel(ClaimView claim) {
+            return !manual() && IMMUTABLE_DECISION_PREDICATES.contains(claim.predicate())
+                    && entities.findById(tx, claim.subjectId()).map(e -> "Decision".equals(e.type())).orElse(false);
         }
 
         /** Brain write lock first (serializes with brain deletion), then the RECEIVED ingestion, if any. */
@@ -317,7 +328,7 @@ public class GraphStore {
             }
             ClaimView old = existing.get();
             if (req.policy() == ConflictPolicy.LATEST_WINS && !Origin.MANUAL.name().equals(old.origin())
-                    && req.principal().equals(old.createdByPrincipal())) {
+                    && req.principal().equals(old.createdByPrincipal()) && !immutableForModel(old)) {
                 return supersedeWith(old, rc, "latest wins: contradiction from the same principal");
             }
             return disputed(rc, subjectId, objectId, old, "CONTRADICTION",
@@ -469,7 +480,7 @@ public class GraphStore {
                     && req.policy() != ConflictPolicy.ALWAYS_FLAG && req.allowLlmSupersession();
             boolean latestWins = req.policy() == ConflictPolicy.LATEST_WINS
                     && req.principal().equals(target.createdByPrincipal());
-            if (explicitAllowed || latestWins) {
+            if ((explicitAllowed || latestWins) && !immutableForModel(target)) {
                 supersedeWith(target, replacement, c.reason());
                 return;
             }
@@ -545,7 +556,8 @@ public class GraphStore {
             if (req.policy() == ConflictPolicy.LATEST_WINS && existing.active()
                     && !Origin.MANUAL.name().equals(existing.origin())
                     && req.principal().equals(existing.createdByPrincipal())
-                    && existing.subjectId().equals(subjectId) && existing.predicate().equals(in.predicate())) {
+                    && existing.subjectId().equals(subjectId) && existing.predicate().equals(in.predicate())
+                    && !immutableForModel(existing)) {
                 supersedeWith(existing, in, "latest wins: contradiction from the same principal");
                 return;
             }

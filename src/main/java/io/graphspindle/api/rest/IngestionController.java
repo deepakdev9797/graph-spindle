@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.ingestion.IngestRequest;
 import io.graphspindle.ingestion.IngestResult;
@@ -59,11 +60,9 @@ public class IngestionController {
     static int status(IngestResult r) {
         if ("FAILED".equals(r.status())) {
             String code = r.error() == null ? "INTERNAL" : r.error().code();
-            return switch (code) {
-                case "MALFORMED_MODEL_OUTPUT" -> 502;
-                case "LLM_UNAVAILABLE" -> 503;
-                default -> 500;
-            };
+            // the same status as the error code's problem details (ARCHITECTURE §13)
+            return java.util.Arrays.stream(ErrorCode.values()).filter(c -> c.name().equals(code)).findFirst()
+                    .map(ErrorCode::httpStatus).orElse(500);
         }
         if (r.replayed() || r.duplicateOf() != null || r.dryRun()) {
             return 200;

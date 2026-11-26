@@ -175,12 +175,22 @@ public class CandidateStage {
         }
 
         CandidateSet.Builder set = CandidateSet.builder();
+        for (Found f : byId.values()) {
+            f.names.add(f.entity.name());
+            f.names.addAll(reader.aliasesOf(scope, f.entity.id()));
+        }
+        List<MentionMatches> ranked = rank(lookups);
+        // the prompt keeps the best-matching candidates when it is over budget (ADR-031)
+        Map<String, Double> best = new LinkedHashMap<>();
+        for (MentionMatches mm : ranked) {
+            for (Match m : mm.ranked()) {
+                best.merge(m.entityId(), m.score(), Math::max);
+            }
+        }
         List<PromptEntity> promptEntities = new ArrayList<>();
         for (Found f : byId.values()) {
             EntityView e = f.entity;
-            List<String> aliasNorms = reader.aliasesOf(scope, e.id());
-            f.names.add(e.name());
-            f.names.addAll(aliasNorms);
+            List<String> aliasNorms = f.names.subList(1, f.names.size());
             Set<String> norms = new HashSet<>(aliasNorms);
             if (e.normalizedName() != null) {
                 norms.add(e.normalizedName());
@@ -194,8 +204,9 @@ public class CandidateStage {
                     shown.add(d);
                 }
             }
+            Double rank = f.self ? Double.valueOf(2.0) : best.get(e.id());
             promptEntities.add(new PromptEntity(f.handle, e.type(), f.self ? speakerLabel : e.name(), shown,
-                    e.description()));
+                    e.description(), rank));
         }
 
         List<PromptClaim> promptClaims = new ArrayList<>();
@@ -217,7 +228,7 @@ public class CandidateStage {
             promptClaims.add(new PromptClaim(handle, subject.handle, v.predicate(), object == null ? null : object.handle,
                     v.value(), v.polarity(), v.statement(), v.origin()));
         }
-        return new Candidates(set.build(), promptEntities, promptClaims, rank(lookups));
+        return new Candidates(set.build(), promptEntities, promptClaims, ranked);
     }
 
     /** Ranks each mention's candidates: exact alias first, then by name similarity (ADR-030). */

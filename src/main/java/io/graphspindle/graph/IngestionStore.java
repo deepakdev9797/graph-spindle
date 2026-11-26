@@ -8,7 +8,9 @@ import io.graphspindle.graph.internal.GraphTransactions;
 import io.graphspindle.graph.internal.IngestionStatements;
 import io.graphspindle.graph.internal.P;
 import io.graphspindle.graph.internal.Rows;
+import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.neo4j.driver.exceptions.Neo4jException;
@@ -63,6 +65,21 @@ public class IngestionStore {
     public boolean markFailed(BrainScope scope, String id, String report) {
         return tx.write(scope, t -> !t.run(IngestionStatements.MARK_FAILED, P.of("id", id, "report", report)).list()
                 .isEmpty());
+    }
+
+    /**
+     * Marks RECEIVED ingestions received before {@code cutoff} as FAILED with {@code report};
+     * {@code id} null sweeps the whole brain. Returns the ids marked.
+     */
+    public List<String> markStale(BrainScope scope, String id, Instant cutoff, String report) {
+        Map<String, Object> params = P.of("id", id, "cutoff", cutoff.atZone(ZoneOffset.UTC), "report", report);
+        return tx.write(scope, t -> t.run(IngestionStatements.MARK_STALE, params).list().stream()
+                .map(r -> r.get("id").asString()).toList());
+    }
+
+    /** Frees the requestId of a FAILED ingestion for a retry (ADR-031). */
+    public boolean releaseRequestId(BrainScope scope, String id) {
+        return tx.write(scope, t -> !t.run(IngestionStatements.RELEASE_REQUEST_ID, P.of("id", id)).list().isEmpty());
     }
 
     /** Stores the serialized result of a completed ingestion (APPLIED, NO_CHANGES or FAILED). */

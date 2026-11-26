@@ -41,6 +41,29 @@ public final class IngestionStatements {
             RETURN i
             """;
 
+    /**
+     * A RECEIVED ingestion older than {@code $cutoff} is FAILED: its process died or gave up (ADR-031).
+     * With {@code $id = null} every stale ingestion of the brain is swept.
+     */
+    public static final String MARK_STALE = """
+            MATCH (i:Ingestion {brainId: $brainId})
+            WHERE ($id IS NULL OR i.id = $id) AND i.status = 'RECEIVED' AND i.receivedAt < $cutoff
+            SET i.status = 'FAILED', i.report = $report, i.completedAt = datetime()
+            RETURN i.id AS id
+            """;
+
+    /**
+     * Frees the requestId of a FAILED ingestion so the client can retry it (ADR-031); the old record
+     * keeps it as {@code releasedRequestId}.
+     */
+    public static final String RELEASE_REQUEST_ID = """
+            MATCH (i:Ingestion {brainId: $brainId, id: $id})
+            WHERE i.status = 'FAILED' AND i.requestId IS NOT NULL
+            SET i.releasedRequestId = i.requestId
+            REMOVE i.requestId
+            RETURN i.id AS id
+            """;
+
     /** Stores the serialized result of a completed (non-RECEIVED) ingestion. */
     public static final String STORE_RESULT = """
             MATCH (i:Ingestion {brainId: $brainId, id: $id})

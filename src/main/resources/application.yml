@@ -98,8 +98,10 @@ graphspindle:
       - correction
       - corrected
       - change of plan
-      - changed
-      - changing
+      - has changed
+      - have changed
+      # "changed X to Y", "changing from X"; not "I changed my shirt" (ADR-031)
+      - 're:(?<![\p{L}\p{N}])chang(?:ed|ing)\s+(?:[^.!?;\n]{0,60}?\s+)?(?:to|from|over)(?![\p{L}\p{N}])'
       - switched
       - switching
       - switch to
