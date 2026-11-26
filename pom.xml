@@ -41,6 +41,10 @@
     <dependency><groupId>tools.jackson.dataformat</groupId><artifactId>jackson-dataformat-yaml</artifactId></dependency>
     <!-- Neo4j Java driver + Driver auto-configuration + health indicator (no Spring Data Neo4j, ADR-018) -->
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-neo4j</artifactId></dependency>
+    <!-- LLM providers (ADR-009, ADR-027): exactly one is activated by spring.ai.model.chat (default none) -->
+    <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-starter-model-ollama</artifactId></dependency>
+    <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-starter-model-openai</artifactId></dependency>
+    <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-starter-model-anthropic</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     <dependency>
       <groupId>org.neo4j.test</groupId><artifactId>neo4j-harness</artifactId>

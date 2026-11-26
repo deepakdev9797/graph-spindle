@@ -6,6 +6,60 @@ spring:
     authentication:
       username: ${GRAPHSPINDLE_NEO4J_USERNAME:neo4j}
       password: ${GRAPHSPINDLE_NEO4J_PASSWORD:}      # empty password -> AuthTokens.none()
+  http:
+    clients:
+      # HTTP read timeout of the RestClient used by the Ollama provider (graphspindle.llm.call-timeout is
+      # the engine-side deadline per call; keep this at or above it)
+      read-timeout: ${GRAPHSPINDLE_LLM_HTTP_READ_TIMEOUT:95s}
+      connect-timeout: 5s
+  ai:
+    model:
+      # the ONE active chat provider: ollama | openai | anthropic | none (ADR-027). With none, ingestion
+      # answers 503 LLM_UNAVAILABLE and everything else works. OpenAI-compatible servers use openai.
+      chat: ${GRAPHSPINDLE_LLM_PROVIDER:none}
+      # every other model type defaults to ON in the starters; switch them off explicitly
+      embedding: none
+      image: none
+      moderation: none
+      decision: none
+      audio:
+        speech: none
+        transcription: none
+    retry:
+      # no hidden retries: the default would make 10 attempts with back-off and also retry read
+      # timeouts; ingestion owns its own (single) repair call and time budget
+      max-attempts: 0
+    ollama:
+      base-url: ${GRAPHSPINDLE_OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        model: ${GRAPHSPINDLE_OLLAMA_MODEL:gemma4:12b}
+        temperature: 0.0
+        seed: ${GRAPHSPINDLE_LLM_SEED:42}
+        # set explicitly: Ollama's default context silently truncates the head of long prompts (the rules)
+        num-ctx: ${GRAPHSPINDLE_LLM_CONTEXT_TOKENS:32768}
+        num-predict: ${GRAPHSPINDLE_LLM_MAX_OUTPUT_TOKENS:4096}
+        # gemma4 thinks by default; with thinking on, latency triples and the format grammar stops applying
+        think: false
+    openai:
+      # also for OpenAI-compatible servers (LM Studio, vLLM, llama.cpp, Groq, OpenRouter...): include /v1
+      base-url: ${GRAPHSPINDLE_OPENAI_BASE_URL:https://api.openai.com/v1}
+      # empty = no-auth mode for local compatible servers; the key only ever comes from the environment
+      api-key: ${GRAPHSPINDLE_OPENAI_API_KEY:}
+      max-retries: 0
+      timeout: ${GRAPHSPINDLE_LLM_HTTP_READ_TIMEOUT:95s}
+      chat:
+        model: ${GRAPHSPINDLE_OPENAI_MODEL:gpt-4.1-mini}
+        temperature: 0.0
+        seed: ${GRAPHSPINDLE_LLM_SEED:42}
+        max-tokens: ${GRAPHSPINDLE_LLM_MAX_OUTPUT_TOKENS:4096}
+    anthropic:
+      api-key: ${GRAPHSPINDLE_ANTHROPIC_API_KEY:}
+      max-retries: 0
+      timeout: ${GRAPHSPINDLE_LLM_HTTP_READ_TIMEOUT:95s}
+      chat:
+        model: ${GRAPHSPINDLE_ANTHROPIC_MODEL:claude-sonnet-4-5}
+        temperature: 0.0
+        max-tokens: ${GRAPHSPINDLE_LLM_MAX_OUTPUT_TOKENS:4096}
   mvc:
     problemdetails:
       enabled: true
@@ -19,6 +73,51 @@ spring:
       # duplicate keys are errors, not last-wins
       strict-duplicate-detection: true
 graphspindle:
+  llm:
+    # false makes ingestion answer 503 LLM_UNAVAILABLE even when a provider is configured
+    enabled: ${GRAPHSPINDLE_LLM_ENABLED:true}
+    # optional per-call model override (empty = the provider's configured model)
+    model: ${GRAPHSPINDLE_LLM_MODEL:}
+    temperature: 0.0
+    max-output-tokens: ${GRAPHSPINDLE_LLM_MAX_OUTPUT_TOKENS:4096}
+    # the model's context window; admission refuses requests whose estimated prompt would not fit
+    context-tokens: ${GRAPHSPINDLE_LLM_CONTEXT_TOKENS:32768}
+    # deadline of one LLM call, and of all LLM calls of one ingestion together
+    call-timeout: ${GRAPHSPINDLE_LLM_CALL_TIMEOUT:90s}
+    timeout: ${GRAPHSPINDLE_LLM_TIMEOUT:120s}
+    # PROVIDER_SCHEMA: our JSON schema is sent as the provider's structured-output format (when the
+    # provider's options support it; otherwise PROMPT is used). PROMPT: schema only in the prompt.
+    structured-output: ${GRAPHSPINDLE_LLM_STRUCTURED_OUTPUT:PROVIDER_SCHEMA}
+  ingestion:
+    # words that mark an explicit correction (ADR-028). The ENGINE decides whether a supersede_claim is an
+    # explicit correction: without one of these cues (whole words/phrases, case-insensitive) in the
+    # redacted content it becomes a disputed claim with a CONTRADICTION conflict.
+    # A cue starting with "re:" is a Java regular expression; "not X but Y" and "moved X to Y" are built in.
+    correction-cues:
+      - actually
+      - correction
+      - corrected
+      - change of plan
+      - changed
+      - changing
+      - switched
+      - switching
+      - switch to
+      - no longer
+      - not anymore
+      - instead
+      - moved to
+      - moving to
+      - migrated
+      - now uses
+      - now use
+      - now using
+      - replaced
+      - replacing
+      - was wrong
+      - is wrong
+      - mistake
+      - rather than
   vocabulary:
     # optional operator file merged over classpath:vocabulary/core-v1.yml (ADR-025), e.g. file:/etc/graphspindle/vocabulary.yml
     location: ${GRAPHSPINDLE_VOCABULARY_LOCATION:}

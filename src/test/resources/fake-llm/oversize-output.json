@@ -1,0 +1,65 @@
+{
+  "scenario": "oversize-output",
+  "description": "The model emits a >2,000,000 character answer: refused by the parser before parsing, then repaired (repair sees only 8 KB).",
+  "content": "Acme Corp is a company that builds robots.",
+  "candidates": {
+    "entities": [],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "Acme Corp builds robots.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "Acme Corp",
+              "type": "Organization",
+              "evidence": "Acme Corp is a company"
+            }
+          ],
+          "statements": []
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "oversizeChars": 2100000
+      }
+    ],
+    "repair-v1": [
+      {
+        "json": {
+          "summary": "Acme Corp is a company.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "o1",
+              "type": "Organization",
+              "name": "Acme Corp"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "o1"
+              },
+              "predicate": "category",
+              "value": "COMPANY",
+              "statement": "Acme Corp is a company.",
+              "evidence": "Acme Corp is a company",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 2,
+    "rejected": {},
+    "repairs": 1,
+    "llmCalls": 3
+  }
+}

@@ -1,0 +1,201 @@
+{
+  "scenario": "meeting-notes",
+  "description": "Realistic agent note mixing a person, an organization, a task with a due date, a preference and a decision.",
+  "live": true,
+  "content": "Notes from today's sync: Bob Martinez, our backend lead at Initech, will write the Neo4j integration tests by 2026-12-15. I prefer short, bullet-point status updates. We decided to use Testcontainers for the Neo4j tests instead of an embedded database.",
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Technology",
+        "name": "Neo4j",
+        "mentionTypes": [
+          "Technology"
+        ]
+      }
+    ],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "Bob Martinez will write Neo4j integration tests; speaker prefers short updates; Testcontainers chosen.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "Bob Martinez",
+              "type": "Person",
+              "evidence": "Bob Martinez, our backend lead"
+            },
+            {
+              "localRef": "m2",
+              "name": "Initech",
+              "type": "Organization",
+              "evidence": "backend lead at Initech"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "MEMBER_OF",
+              "objectRef": "m2",
+              "statement": "Bob Martinez works at Initech.",
+              "evidence": "Bob Martinez, our backend lead at Initech",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "Sync notes: Bob Martinez owns the Neo4j integration tests; Testcontainers chosen.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "p1",
+              "type": "Person",
+              "name": "Bob Martinez"
+            },
+            {
+              "op": "create_entity",
+              "ref": "o1",
+              "type": "Organization",
+              "name": "Initech"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "p1"
+              },
+              "predicate": "MEMBER_OF",
+              "object": {
+                "ref": "o1"
+              },
+              "statement": "Bob Martinez works at Initech.",
+              "evidence": "Bob Martinez, our backend lead at Initech",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "p1"
+              },
+              "predicate": "role",
+              "value": "backend lead",
+              "statement": "Bob Martinez is the backend lead.",
+              "evidence": "Bob Martinez, our backend lead",
+              "confidence": 0.9
+            },
+            {
+              "op": "create_entity",
+              "ref": "t1",
+              "type": "Task",
+              "name": "Write the Neo4j integration tests"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "t1"
+              },
+              "predicate": "ASSIGNED_TO",
+              "object": {
+                "ref": "p1"
+              },
+              "statement": "Bob Martinez will write the Neo4j integration tests.",
+              "evidence": "Bob Martinez, our backend lead at Initech, will write the Neo4j integration tests",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "t1"
+              },
+              "predicate": "dueDate",
+              "value": "2026-12-15",
+              "statement": "The Neo4j integration tests are due 2026-12-15.",
+              "evidence": "will write the Neo4j integration tests by 2026-12-15",
+              "confidence": 0.9
+            },
+            {
+              "op": "create_entity",
+              "ref": "q1",
+              "type": "Preference",
+              "name": "Short, bullet-point status updates"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "P0"
+              },
+              "predicate": "HAS_PREFERENCE",
+              "object": {
+                "ref": "q1"
+              },
+              "statement": "The speaker prefers short, bullet-point status updates.",
+              "evidence": "I prefer short, bullet-point status updates",
+              "confidence": 0.9
+            },
+            {
+              "op": "create_entity",
+              "ref": "x1",
+              "type": "Technology",
+              "name": "Testcontainers"
+            },
+            {
+              "op": "create_entity",
+              "ref": "d1",
+              "type": "Decision",
+              "name": "Use Testcontainers for the Neo4j tests"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "P0"
+              },
+              "predicate": "DECIDED",
+              "object": {
+                "ref": "d1"
+              },
+              "statement": "The speaker decided to use Testcontainers for the Neo4j tests.",
+              "evidence": "We decided to use Testcontainers for the Neo4j tests",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "d1"
+              },
+              "predicate": "CHOOSES",
+              "object": {
+                "ref": "x1"
+              },
+              "statement": "The decision chooses Testcontainers.",
+              "evidence": "use Testcontainers for the Neo4j tests",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "d1"
+              },
+              "predicate": "status",
+              "value": "ACCEPTED",
+              "statement": "The Testcontainers decision is accepted.",
+              "evidence": "We decided to use Testcontainers",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 14,
+    "rejected": {},
+    "llmCalls": 2
+  }
+}

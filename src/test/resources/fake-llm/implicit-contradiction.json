@@ -1,0 +1,127 @@
+{
+  "scenario": "implicit-contradiction",
+  "description": "SCHEMA §10.4: another agent states a different license without correction words; plain assert_claim, engine detects the contradiction.",
+  "live": true,
+  "content": "GraphSpindle is GPL-3.0 licensed.",
+  "speaker": {
+    "type": "Agent",
+    "name": "ci-bot"
+  },
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      },
+      {
+        "handle": "k2",
+        "type": "Standard",
+        "name": "MIT License",
+        "aliases": [
+          "MIT"
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "handle": "c1",
+        "subject": "k1",
+        "predicate": "LICENSED_UNDER",
+        "object": "k2",
+        "statement": "GraphSpindle is licensed under MIT."
+      }
+    ]
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle is GPL-3.0 licensed.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "GraphSpindle",
+              "type": "Project",
+              "evidence": "GraphSpindle is"
+            },
+            {
+              "localRef": "m2",
+              "name": "GNU General Public License v3.0",
+              "type": "Standard",
+              "evidence": "GPL-3.0 licensed",
+              "aliases": [
+                "GPL-3.0"
+              ]
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "LICENSED_UNDER",
+              "objectRef": "m2",
+              "statement": "GraphSpindle is licensed under GPL-3.0.",
+              "evidence": "GraphSpindle is GPL-3.0 licensed",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle is said to be GPL-3.0 licensed.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "g1",
+              "type": "Standard",
+              "name": "GNU General Public License v3.0",
+              "aliases": [
+                "GPL-3.0"
+              ]
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "g1"
+              },
+              "predicate": "category",
+              "value": "LICENSE",
+              "statement": "GPL-3.0 is a license.",
+              "evidence": "GPL-3.0 licensed",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "k1"
+              },
+              "predicate": "LICENSED_UNDER",
+              "object": {
+                "ref": "g1"
+              },
+              "statement": "GraphSpindle is licensed under GPL-3.0.",
+              "evidence": "GraphSpindle is GPL-3.0 licensed",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 3,
+    "rejected": {},
+    "adjusted": {
+      "CONTRADICTION_DETECTED": 1
+    },
+    "llmCalls": 2
+  }
+}

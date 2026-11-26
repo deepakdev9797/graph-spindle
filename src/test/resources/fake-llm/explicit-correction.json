@@ -1,0 +1,217 @@
+{
+  "scenario": "explicit-correction",
+  "description": "SCHEMA §10.3: explicit correction supersedes the LICENSED_UNDER slot claim c1; the new decision REPLACES k3.",
+  "live": true,
+  "content": "Change of plan: we're switching GraphSpindle from Apache 2.0 to the MIT license.",
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      },
+      {
+        "handle": "k2",
+        "type": "Standard",
+        "name": "Apache License 2.0",
+        "aliases": [
+          "Apache 2.0",
+          "Apache-2.0"
+        ],
+        "mentionTypes": [
+          "Standard"
+        ]
+      },
+      {
+        "handle": "k3",
+        "type": "Decision",
+        "name": "Use Apache License 2.0 for GraphSpindle"
+      }
+    ],
+    "claims": [
+      {
+        "handle": "c1",
+        "subject": "k1",
+        "predicate": "LICENSED_UNDER",
+        "object": "k2",
+        "statement": "GraphSpindle is licensed under Apache License 2.0."
+      },
+      {
+        "handle": "c2",
+        "subject": "k3",
+        "predicate": "CHOOSES",
+        "object": "k2",
+        "statement": "The decision chooses Apache License 2.0."
+      },
+      {
+        "handle": "c3",
+        "subject": "k3",
+        "predicate": "status",
+        "value": "ACCEPTED",
+        "valueType": "ENUM",
+        "statement": "The Apache 2.0 decision is accepted."
+      }
+    ]
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "The speaker switches GraphSpindle from Apache 2.0 to MIT.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "GraphSpindle",
+              "type": "Project",
+              "evidence": "switching GraphSpindle"
+            },
+            {
+              "localRef": "m2",
+              "name": "MIT License",
+              "type": "Standard",
+              "evidence": "the MIT license",
+              "aliases": [
+                "MIT"
+              ]
+            },
+            {
+              "localRef": "m3",
+              "name": "Apache License 2.0",
+              "type": "Standard",
+              "evidence": "from Apache 2.0"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "LICENSED_UNDER",
+              "objectRef": "m2",
+              "statement": "GraphSpindle is licensed under MIT.",
+              "evidence": "switching GraphSpindle from Apache 2.0 to the MIT license",
+              "confidence": 0.9,
+              "correctionCue": true
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle's license changes from Apache 2.0 to MIT.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "s1",
+              "type": "Standard",
+              "name": "MIT License",
+              "aliases": [
+                "MIT"
+              ]
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "s1"
+              },
+              "predicate": "category",
+              "value": "LICENSE",
+              "statement": "MIT is a license.",
+              "evidence": "the MIT license",
+              "confidence": 0.9
+            },
+            {
+              "op": "create_entity",
+              "ref": "d2",
+              "type": "Decision",
+              "name": "Use MIT License for GraphSpindle"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "P0"
+              },
+              "predicate": "DECIDED",
+              "object": {
+                "ref": "d2"
+              },
+              "statement": "The speaker decided to switch to MIT.",
+              "evidence": "we're switching GraphSpindle from Apache 2.0 to the MIT license",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "d2"
+              },
+              "predicate": "CHOOSES",
+              "object": {
+                "ref": "s1"
+              },
+              "statement": "The decision chooses MIT.",
+              "evidence": "to the MIT license",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "d2"
+              },
+              "predicate": "APPLIES_TO",
+              "object": {
+                "id": "k1"
+              },
+              "statement": "Applies to GraphSpindle.",
+              "evidence": "switching GraphSpindle",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "d2"
+              },
+              "predicate": "REPLACES",
+              "object": {
+                "id": "k3"
+              },
+              "statement": "The MIT decision replaces the Apache 2.0 decision.",
+              "evidence": "Change of plan",
+              "confidence": 0.9
+            },
+            {
+              "op": "supersede_claim",
+              "claimId": "c1",
+              "explicitCorrection": true,
+              "reason": "License changed from Apache 2.0 to MIT",
+              "replacement": {
+                "subject": {
+                  "id": "k1"
+                },
+                "predicate": "LICENSED_UNDER",
+                "object": {
+                  "ref": "s1"
+                },
+                "statement": "GraphSpindle is licensed under MIT.",
+                "evidence": "switching GraphSpindle from Apache 2.0 to the MIT license",
+                "confidence": 0.9
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 8,
+    "rejected": {},
+    "commands": {
+      "SupersedeClaimCommand": 1
+    },
+    "llmCalls": 2
+  }
+}

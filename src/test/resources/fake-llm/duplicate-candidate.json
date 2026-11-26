@@ -1,0 +1,140 @@
+{
+  "scenario": "duplicate-candidate",
+  "description": "SCHEMA §10.5: spacing variant of an existing project; create + propose_merge instead of a silent duplicate.",
+  "live": true,
+  "content": "Graph Spindle's repo is on GitHub.",
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      }
+    ],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "The Graph Spindle repository is hosted on GitHub.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "Graph Spindle",
+              "type": "Project",
+              "evidence": "Graph Spindle's repo"
+            },
+            {
+              "localRef": "m2",
+              "name": "Graph Spindle repo",
+              "type": "Artifact",
+              "evidence": "Graph Spindle's repo"
+            },
+            {
+              "localRef": "m3",
+              "name": "GitHub",
+              "type": "Technology",
+              "evidence": "on GitHub"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m2",
+              "predicate": "PART_OF",
+              "objectRef": "m1",
+              "statement": "The repo belongs to Graph Spindle.",
+              "evidence": "Graph Spindle's repo",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "Graph Spindle's repository is on GitHub.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "x1",
+              "type": "Project",
+              "name": "Graph Spindle"
+            },
+            {
+              "op": "propose_merge",
+              "a": {
+                "ref": "x1"
+              },
+              "b": {
+                "id": "k1"
+              },
+              "reason": "spacing variant of GraphSpindle"
+            },
+            {
+              "op": "create_entity",
+              "ref": "r1",
+              "type": "Artifact",
+              "name": "Graph Spindle repo"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "r1"
+              },
+              "predicate": "category",
+              "value": "REPOSITORY",
+              "statement": "The Graph Spindle repo is a repository.",
+              "evidence": "Graph Spindle's repo",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "r1"
+              },
+              "predicate": "PART_OF",
+              "object": {
+                "ref": "x1"
+              },
+              "statement": "The repo belongs to Graph Spindle.",
+              "evidence": "Graph Spindle's repo",
+              "confidence": 0.9
+            },
+            {
+              "op": "create_entity",
+              "ref": "h1",
+              "type": "Technology",
+              "name": "GitHub"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "h1"
+              },
+              "predicate": "category",
+              "value": "PLATFORM",
+              "statement": "GitHub is a platform.",
+              "evidence": "is on GitHub",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 7,
+    "rejected": {},
+    "commands": {
+      "ProposeMergeCommand": 1
+    },
+    "llmCalls": 2
+  }
+}

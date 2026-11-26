@@ -1,0 +1,232 @@
+{
+  "scenario": "followup-update",
+  "description": "SCHEMA §10.2: second message; GraphSpindle and Neo4j already exist (k1, k2), USES is reinforced, a file is referenced but never read.",
+  "live": true,
+  "content": "GraphSpindle now exposes an MCP server too. Alice Chen from Acme is helping me with the Neo4j store. Design notes are in docs/ARCHITECTURE.md.",
+  "sources": [
+    {
+      "kind": "FILE",
+      "locator": "docs/ARCHITECTURE.md",
+      "title": "ARCHITECTURE.md",
+      "summary": "Architecture of GraphSpindle"
+    }
+  ],
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      },
+      {
+        "handle": "k2",
+        "type": "Technology",
+        "name": "Neo4j",
+        "mentionTypes": [
+          "Technology"
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "handle": "c1",
+        "subject": "k1",
+        "predicate": "USES",
+        "object": "k2",
+        "statement": "GraphSpindle uses Neo4j."
+      },
+      {
+        "handle": "c2",
+        "subject": "P0",
+        "predicate": "WORKS_ON",
+        "object": "k1",
+        "statement": "The speaker is building GraphSpindle."
+      }
+    ]
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle exposes an MCP server; Alice Chen from Acme helps with the Neo4j store.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "GraphSpindle",
+              "type": "Project",
+              "evidence": "GraphSpindle now exposes"
+            },
+            {
+              "localRef": "m2",
+              "name": "Model Context Protocol",
+              "type": "Standard",
+              "evidence": "an MCP server",
+              "aliases": [
+                "MCP"
+              ]
+            },
+            {
+              "localRef": "m3",
+              "name": "Alice Chen",
+              "type": "Person",
+              "evidence": "Alice Chen from Acme"
+            },
+            {
+              "localRef": "m4",
+              "name": "Acme",
+              "type": "Organization",
+              "evidence": "Alice Chen from Acme"
+            },
+            {
+              "localRef": "m5",
+              "name": "Neo4j",
+              "type": "Technology",
+              "evidence": "the Neo4j store"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "IMPLEMENTS",
+              "objectRef": "m2",
+              "statement": "GraphSpindle exposes an MCP server.",
+              "evidence": "GraphSpindle now exposes an MCP server",
+              "confidence": 0.9
+            },
+            {
+              "subjectRef": "m3",
+              "predicate": "MEMBER_OF",
+              "objectRef": "m4",
+              "statement": "Alice Chen is from Acme.",
+              "evidence": "Alice Chen from Acme",
+              "confidence": 0.85
+            },
+            {
+              "subjectRef": "m3",
+              "predicate": "WORKS_ON",
+              "objectRef": "m1",
+              "statement": "Alice Chen helps with GraphSpindle.",
+              "evidence": "Alice Chen from Acme is helping me with the Neo4j store",
+              "confidence": 0.8
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle gains an MCP server; Alice Chen (Acme) helps with the Neo4j store.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "m1",
+              "type": "Standard",
+              "name": "Model Context Protocol",
+              "aliases": [
+                "MCP"
+              ]
+            },
+            {
+              "op": "create_entity",
+              "ref": "a1",
+              "type": "Person",
+              "name": "Alice Chen"
+            },
+            {
+              "op": "create_entity",
+              "ref": "o1",
+              "type": "Organization",
+              "name": "Acme"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "k1"
+              },
+              "predicate": "IMPLEMENTS",
+              "object": {
+                "ref": "m1"
+              },
+              "statement": "GraphSpindle exposes an MCP server.",
+              "evidence": "GraphSpindle now exposes an MCP server",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "a1"
+              },
+              "predicate": "MEMBER_OF",
+              "object": {
+                "ref": "o1"
+              },
+              "statement": "Alice Chen is from Acme.",
+              "evidence": "Alice Chen from Acme",
+              "confidence": 0.85
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "a1"
+              },
+              "predicate": "WORKS_ON",
+              "object": {
+                "id": "k1"
+              },
+              "statement": "Alice Chen helps with GraphSpindle's Neo4j store.",
+              "evidence": "Alice Chen from Acme is helping me with the Neo4j store",
+              "confidence": 0.8
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "a1"
+              },
+              "predicate": "KNOWS",
+              "object": {
+                "id": "P0"
+              },
+              "statement": "Alice Chen works with the speaker.",
+              "evidence": "is helping me",
+              "confidence": 0.7
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "id": "k1"
+              },
+              "predicate": "USES",
+              "object": {
+                "id": "k2"
+              },
+              "statement": "GraphSpindle uses Neo4j.",
+              "evidence": "the Neo4j store",
+              "confidence": 0.8
+            },
+            {
+              "op": "link_source",
+              "source": 0,
+              "target": {
+                "id": "k1"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 9,
+    "rejected": {},
+    "adjusted": {
+      "REINFORCEMENT": 1
+    },
+    "llmCalls": 2
+  }
+}

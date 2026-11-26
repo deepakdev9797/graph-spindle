@@ -1,0 +1,99 @@
+{
+  "scenario": "malformed-then-repaired",
+  "description": "First reconcile answer is broken JSON in a code fence; the single repair call returns valid JSON.",
+  "content": "GraphSpindle is written in Java.",
+  "candidates": {
+    "entities": [],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle is written in Java.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "GraphSpindle",
+              "type": "Project",
+              "evidence": "GraphSpindle is"
+            },
+            {
+              "localRef": "m2",
+              "name": "Java",
+              "type": "Technology",
+              "evidence": "in Java"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "WRITTEN_IN",
+              "objectRef": "m2",
+              "statement": "GraphSpindle is written in Java.",
+              "evidence": "GraphSpindle is written in Java",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "raw": "```json\n{\"summary\": \"GraphSpindle uses Java\", \"operations\": [{\"op\": \"create_entity\", \"ref\": \"e1\" \"type\": \"Project\", \"name\": \"GraphSpindle\"},]\n```"
+      }
+    ],
+    "repair-v1": [
+      {
+        "json": {
+          "summary": "GraphSpindle is written in Java.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "e1",
+              "type": "Project",
+              "name": "GraphSpindle"
+            },
+            {
+              "op": "create_entity",
+              "ref": "e2",
+              "type": "Technology",
+              "name": "Java"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "e1"
+              },
+              "predicate": "WRITTEN_IN",
+              "object": {
+                "ref": "e2"
+              },
+              "statement": "GraphSpindle is written in Java.",
+              "evidence": "GraphSpindle is written in Java",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "e2"
+              },
+              "predicate": "category",
+              "value": "LANGUAGE",
+              "statement": "Java is a programming language.",
+              "evidence": "written in Java",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 4,
+    "rejected": {},
+    "repairs": 1,
+    "llmCalls": 3
+  }
+}

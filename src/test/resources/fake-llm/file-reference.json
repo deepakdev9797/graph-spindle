@@ -1,0 +1,170 @@
+{
+  "scenario": "file-reference",
+  "description": "A file is referenced by locator and summary. The engine never opens it (the path does not exist); facts may cite the summary.",
+  "live": true,
+  "content": "I uploaded the Q3 planning doc for GraphSpindle to /srv/shared/graphspindle/q3-plan.pdf so you have it.",
+  "sources": [
+    {
+      "kind": "FILE",
+      "locator": "/srv/shared/graphspindle/q3-plan.pdf",
+      "title": "Q3 planning",
+      "summary": "Q3 2026 plan for GraphSpindle: ship the MCP server by 2026-12-15 and start entity resolution work."
+    }
+  ],
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      }
+    ],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "Q3 planning document for GraphSpindle uploaded.",
+          "mentions": [
+            {
+              "localRef": "m1",
+              "name": "Q3 planning doc",
+              "type": "Artifact",
+              "evidence": "the Q3 planning doc for GraphSpindle"
+            },
+            {
+              "localRef": "m2",
+              "name": "GraphSpindle",
+              "type": "Project",
+              "evidence": "for GraphSpindle"
+            },
+            {
+              "localRef": "m3",
+              "name": "Ship the MCP server",
+              "type": "Task",
+              "evidence": "ship the MCP server by 2026-12-15"
+            }
+          ],
+          "statements": [
+            {
+              "subjectRef": "m1",
+              "predicate": "ABOUT",
+              "objectRef": "m2",
+              "statement": "The Q3 planning doc is about GraphSpindle.",
+              "evidence": "the Q3 planning doc for GraphSpindle",
+              "confidence": 0.9
+            },
+            {
+              "subjectRef": "m3",
+              "predicate": "dueDate",
+              "value": "2026-12-15",
+              "statement": "Shipping the MCP server is due 2026-12-15.",
+              "evidence": "ship the MCP server by 2026-12-15",
+              "confidence": 0.9
+            }
+          ]
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "The speaker shared the GraphSpindle Q3 planning document.",
+          "operations": [
+            {
+              "op": "create_entity",
+              "ref": "a1",
+              "type": "Artifact",
+              "name": "GraphSpindle Q3 planning doc",
+              "description": "Q3 2026 plan for GraphSpindle.",
+              "aliases": [
+                "Q3 planning doc"
+              ]
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "a1"
+              },
+              "predicate": "category",
+              "value": "DOCUMENT",
+              "statement": "The Q3 planning doc is a document.",
+              "evidence": "the Q3 planning doc",
+              "confidence": 0.9
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "a1"
+              },
+              "predicate": "ABOUT",
+              "object": {
+                "id": "k1"
+              },
+              "statement": "The Q3 planning doc is about GraphSpindle.",
+              "evidence": "the Q3 planning doc for GraphSpindle",
+              "confidence": 0.9
+            },
+            {
+              "op": "link_source",
+              "source": 0,
+              "target": {
+                "ref": "a1"
+              }
+            },
+            {
+              "op": "create_entity",
+              "ref": "t1",
+              "type": "Task",
+              "name": "Ship the MCP server"
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "t1"
+              },
+              "predicate": "PART_OF",
+              "object": {
+                "id": "k1"
+              },
+              "statement": "Shipping the MCP server is part of GraphSpindle.",
+              "evidence": "Q3 2026 plan for GraphSpindle: ship the MCP server",
+              "confidence": 0.8,
+              "sources": [
+                0
+              ]
+            },
+            {
+              "op": "assert_claim",
+              "subject": {
+                "ref": "t1"
+              },
+              "predicate": "dueDate",
+              "value": "2026-12-15",
+              "statement": "Shipping the MCP server is due 2026-12-15.",
+              "evidence": "ship the MCP server by 2026-12-15",
+              "confidence": 0.9,
+              "sources": [
+                0
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 7,
+    "rejected": {},
+    "commands": {
+      "LinkSourceCommand": 1
+    },
+    "llmCalls": 2
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "scenario": "garbage-output",
+  "description": "The model answers with prose instead of JSON, and again after the repair prompt: MALFORMED_MODEL_OUTPUT, nothing to apply.",
+  "content": "We talked about GraphSpindle for a while today.",
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      }
+    ],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "Small talk about GraphSpindle.",
+          "mentions": [],
+          "statements": []
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "raw": "Sure! Here are the operations: op=create_entity, name=GraphSpindle {not json"
+      }
+    ],
+    "repair-v1": [
+      {
+        "raw": "I'm sorry, I cannot produce JSON for this."
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "MALFORMED_MODEL_OUTPUT",
+    "repairs": 1,
+    "llmCalls": 3
+  }
+}

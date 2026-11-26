@@ -1,0 +1,20 @@
+{
+  "scenario": "llm-timeout",
+  "description": "The provider times out on the extraction call; the ingestion fails with LLM_ERROR and nothing is parsed.",
+  "content": "Bob prefers tabs over spaces.",
+  "candidates": {
+    "entities": [],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "error": "timeout"
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "LLM_ERROR",
+    "llmCalls": 1
+  }
+}

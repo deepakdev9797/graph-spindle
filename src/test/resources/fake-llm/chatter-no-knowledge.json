@@ -1,0 +1,45 @@
+{
+  "scenario": "chatter-no-knowledge",
+  "description": "Pure chatter: no durable knowledge, empty operation list.",
+  "live": true,
+  "content": "thanks, bye!",
+  "candidates": {
+    "entities": [
+      {
+        "handle": "k1",
+        "type": "Project",
+        "name": "GraphSpindle",
+        "description": "Knowledge graph engine being built by the speaker.",
+        "mentionTypes": [
+          "Project"
+        ]
+      }
+    ],
+    "claims": []
+  },
+  "responses": {
+    "extract-v1": [
+      {
+        "json": {
+          "summary": "Farewell, no durable knowledge.",
+          "mentions": [],
+          "statements": []
+        }
+      }
+    ],
+    "reconcile-v1": [
+      {
+        "json": {
+          "summary": "No durable knowledge.",
+          "operations": []
+        }
+      }
+    ]
+  },
+  "expect": {
+    "outcome": "PARSED",
+    "accepted": 0,
+    "rejected": {},
+    "llmCalls": 2
+  }
+}
