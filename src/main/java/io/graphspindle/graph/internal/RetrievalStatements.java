@@ -42,6 +42,24 @@ public final class RetrievalStatements {
             RETURN c ORDER BY c.recordedAt DESC, c.id DESC LIMIT $limit
             """;
 
+    /**
+     * Every claim (any status) where the entity is subject or object, with its SUPERSEDES targets,
+     * oldest first: the record-time timeline for point-in-time reads and history (ADR-026).
+     */
+    public static final String CLAIM_TIMELINE_OF_ENTITY = """
+            MATCH (c:Claim {brainId: $brainId})
+            WHERE c.subjectId = $id OR c.objectId = $id
+            WITH c ORDER BY c.recordedAt, c.id LIMIT $limit
+            OPTIONAL MATCH (c)-[s:SUPERSEDES {brainId: $brainId}]->(o:Claim {brainId: $brainId})
+            WITH c, collect(o.id) AS supersedes, head(collect(s.reason)) AS reason
+            RETURN c, supersedes, reason ORDER BY c.recordedAt, c.id
+            """;
+
+    public static final String ENTITY_CREATED_AT = """
+            MATCH (n:Entity {brainId: $brainId, id: $id})
+            RETURN n.createdAt AS createdAt
+            """;
+
     /** The connected SUPERSEDES chain of a claim (both directions), oldest first. */
     public static final String CLAIM_HISTORY = """
             MATCH (c:Claim {brainId: $brainId, id: $id})

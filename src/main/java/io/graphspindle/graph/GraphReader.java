@@ -121,6 +121,29 @@ public class GraphReader {
                 statuses, "limit", (long) limit)).list(r -> Rows.claim(r.get("c"))));
     }
 
+    /**
+     * The record-time timeline of an entity: every claim where it is subject or object, oldest
+     * first, at most {@code limit} (ADR-026).
+     */
+    public List<TimedClaim> claimTimeline(BrainScope scope, String entityId, int limit) {
+        return tx.read(scope, t -> t.run(RetrievalStatements.CLAIM_TIMELINE_OF_ENTITY, P.of("id", entityId, "limit",
+                (long) limit)).list(r -> {
+                    var c = r.get("c");
+                    java.time.Instant recorded = c.get("recordedAt").asZonedDateTime().toInstant();
+                    java.time.Instant changed = c.get("statusChangedAt").isNull() ? recorded
+                            : c.get("statusChangedAt").asZonedDateTime().toInstant();
+                    return new TimedClaim(Rows.claim(c), recorded, changed, r.get("supersedes").asList(v -> v.asString()),
+                            r.get("reason").asString(null));
+                }));
+    }
+
+    /** When the entity node was created, if it exists. */
+    public Optional<java.time.Instant> entityCreatedAt(BrainScope scope, String entityId) {
+        return tx.read(scope, t -> t.run(RetrievalStatements.ENTITY_CREATED_AT, P.of("id", entityId)).list().stream()
+                .findFirst().map(r -> r.get("createdAt").isNull() ? null
+                        : r.get("createdAt").asZonedDateTime().toInstant()));
+    }
+
     /** The SUPERSEDES chain the claim belongs to, oldest first, each with its links. Empty if not found. */
     public List<ClaimLinked> claimHistory(BrainScope scope, String claimId) {
         return tx.read(scope, t -> {

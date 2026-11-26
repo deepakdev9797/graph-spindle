@@ -255,6 +255,8 @@ All retrieval is deterministic and needs no LLM.
   - The entity, its aliases, its ACTIVE claims (statement, predicate, object, confidence, evidence count, and up to 3 source refs), and its DISPUTED claims together with their open conflicts.
   - `MERGED` ids are followed to the survivor.
   - Rendered as JSON and also as a compact text block (`ContextRenderer`) for agents.
+- Plain node view (ADR-024, ADR-026), the default entity read: node fields, current properties (the `attr_` projection without the prefix) and current relationships (ACTIVE positive relation claims, both directions); claims only on request.
+- `asOf(brain, entityId, instant)` reconstructs properties and relationships as the brain believed them at that record time, and `history(brain, entityId)` lists property and relationship changes (old → new, with claim, origin, ingestion, principal, reason and sources) in record-time order. Both replay the claim timeline (`GraphReader.claimTimeline`).
 - `neighbors(brain, entityId, depth 1–2, predicates?, limit)` traverses projection edges only. The query is restricted to edge types from the vocabulary, and every node in the pattern is matched with `brainId`.
 - `claimHistory(brain, claimId | subjectId+predicate)` returns the SUPERSEDES chain ordered by `recordedAt`.
 - An LLM-generated answer ("ask the brain") is out of MVP scope. If it is added later, it must be built on `entityContext` / `search` results with no write capability.
@@ -286,7 +288,8 @@ All retrieval is deterministic and needs no LLM.
 | `GET /brains/{brainId}/search?q=&types=&limit=` | BRAIN_READ | `SearchService.search` |
 | `GET /brains/{brainId}/entities?type=&status=&cursor=&limit=` | BRAIN_READ | `KnowledgeService.listEntities` |
 | `POST /brains/{brainId}/entities` | BRAIN_WRITE | `KnowledgeService.createEntity` (origin MANUAL) |
-| `GET /brains/{brainId}/entities/{id}` | BRAIN_READ | `EntityContextService.context` |
+| `GET /brains/{brainId}/entities/{id}?include=claims&asOf=` | BRAIN_READ | `EntityReadService.read`: plain view (`NodeViewService.current`, or `.asOf` for a record-time point); `include=claims` adds `EntityContextService.context` (ADR-026) |
+| `GET /brains/{brainId}/entities/{id}/history?limit=` | BRAIN_READ | `NodeViewService.history` (property and relationship changes, ADR-026) |
 | `PATCH /brains/{brainId}/entities/{id}` | BRAIN_WRITE | `KnowledgeService.updateEntity` (name, description lock) |
 | `DELETE /brains/{brainId}/entities/{id}` | BRAIN_WRITE | `KnowledgeService.archiveEntity` (soft) |
 | `GET /brains/{brainId}/entities/{id}/aliases` | BRAIN_READ | `KnowledgeService.aliases` |
@@ -304,7 +307,7 @@ All retrieval is deterministic and needs no LLM.
 | `POST /admin/api-keys`, `GET /admin/api-keys`, `DELETE /admin/api-keys/{keyId}` | ADMIN (or BRAIN_ADMIN for keys limited to its brains) | `ApiKeyAdminService` |
 | `GET /admin/brains/{brainId}/projection-check` | BRAIN_ADMIN | `ProjectionVerifier` |
 
-Implemented in M5 (ADR-023): every row above except ingestions, api-keys and `GET /system/info`; the node-type and relationship-type rows were added with ADR-025 (per-brain responses carry `configVersion` as ETag and writes accept `If-Match`; `graphspindle.vocabulary.api-mutable=false` makes the writes 403). Lists use keyset pagination (`cursor` = the `next` value of the previous page, `limit` ≤ 200, default 50) and return `{items, next}`. `GET /entities/{id}` accepts `maxClaims` (≤ 100, default 30); `/neighbors` accepts `limit` (≤ 200 nodes, default 50); `/search` takes `types` as a comma-separated list. Until M9 every request acts as the principal `admin`.
+Implemented in M5 (ADR-023): every row above except ingestions, api-keys and `GET /system/info`; the node-type and relationship-type rows were added with ADR-025 (per-brain responses carry `configVersion` as ETag and writes accept `If-Match`; `graphspindle.vocabulary.api-mutable=false` makes the writes 403). Lists use keyset pagination (`cursor` = the `next` value of the previous page, `limit` ≤ 200, default 50) and return `{items, next}`. `GET /entities/{id}` returns the plain view (node fields, `properties` without the `attr_` prefix, `relationships` with direction, aliases) and accepts `include=claims` (adds `entity`, `claims`, `disputed`, `openConflictIds`, `describedBy`, `text`), `asOf` (ISO date = end of that day UTC, or date-time) and `maxClaims` (≤ 100, default 30); `/history` accepts `limit` (≤ 1000, default 200); `/neighbors` accepts `limit` (≤ 200 nodes, default 50); `/search` takes `types` as a comma-separated list. Until M9 every request acts as the principal `admin`.
 
 Swagger UI is at `/swagger-ui.html` and OpenAPI at `/v3/api-docs`. Both require authentication unless security is disabled on loopback. Actuator `health` is unauthenticated and returns status only, without details.
 

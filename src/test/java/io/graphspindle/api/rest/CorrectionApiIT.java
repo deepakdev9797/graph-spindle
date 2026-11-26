@@ -89,7 +89,7 @@ class CorrectionApiIT extends AbstractNeo4jIT {
         // the slot of an attribute is freed by retraction
         String status = k.value("dev", gs, "status", "ACTIVE");
         k.raw().post("/api/v1/brains/dev/claims/" + status + "/retract", json(Map.of("reason", "unknown")));
-        assertThat(k.get("/api/v1/brains/dev/entities/" + gs).get("entity").get("attributes").has("status")).isFalse();
+        assertThat(k.get("/api/v1/brains/dev/entities/" + gs + "?include=claims").get("entity").get("attributes").has("status")).isFalse();
         assertThat(k.get("/api/v1/admin/brains/dev/projection-check").get("consistent").asBoolean()).isTrue();
     }
 
@@ -102,7 +102,7 @@ class CorrectionApiIT extends AbstractNeo4jIT {
         JsonNode conflict = k.get("/api/v1/brains/dev/conflicts/" + conflictId);
         assertThat(conflict.get("kind").asString()).isEqualTo("CONTRADICTION");
         assertThat(texts(conflict.get("claims"), "role")).containsExactly("EXISTING", "INCOMING");
-        JsonNode context = k.get("/api/v1/brains/dev/entities/" + gs);
+        JsonNode context = k.get("/api/v1/brains/dev/entities/" + gs + "?include=claims");
         assertThat(texts(context.get("disputed"), "claim.objectName")).containsExactly("MIT License");
         assertThat(texts(context.get("openConflictIds"), null)).containsExactly(conflictId);
         assertThat(k.get("/api/v1/brains/dev/claims/" + license).get("claim").get("status").asString())

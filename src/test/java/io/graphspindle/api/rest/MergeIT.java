@@ -71,7 +71,7 @@ class MergeIT extends AbstractNeo4jIT {
         JsonNode n = k.get("/api/v1/brains/dev/entities/" + survivor + "/neighbors");
         assertThat(texts(n.get("nodes"), "entity.name")).containsExactlyInAnyOrder("Neo4j", "Apache License 2.0",
                 "Alice Chen");
-        assertThat(k.get("/api/v1/brains/dev/entities/" + survivor).get("entity").get("attributes").get("status")
+        assertThat(k.get("/api/v1/brains/dev/entities/" + survivor + "?include=claims").get("entity").get("attributes").get("status")
                 .asString()).isEqualTo("ACTIVE");
         assertThat(count("MATCH (n:Entity {brainId: 'dev', id: $id}) RETURN size([k IN keys(n) WHERE k STARTS WITH"
                 + " 'attr_'])", Map.of("id", loser))).isZero();
@@ -97,7 +97,7 @@ class MergeIT extends AbstractNeo4jIT {
         merge();
         assertThat(texts(k.get("/api/v1/brains/dev/entities/" + survivor + "/aliases"), "normalized"))
                 .contains("graphspindle", "graph spindle", "gs");
-        JsonNode redirected = k.get("/api/v1/brains/dev/entities/" + loser);
+        JsonNode redirected = k.get("/api/v1/brains/dev/entities/" + loser + "?include=claims");
         assertThat(redirected.get("redirectedFrom").asString()).isEqualTo(loser);
         assertThat(redirected.get("entity").get("id").asString()).isEqualTo(survivor);
         JsonNode raw = k.get("/api/v1/brains/dev/entities?status=MERGED").get("items").get(0);

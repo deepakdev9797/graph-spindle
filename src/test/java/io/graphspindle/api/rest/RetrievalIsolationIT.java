@@ -62,7 +62,7 @@ class RetrievalIsolationIT extends AbstractNeo4jIT {
         bIds.addAll(List.of(b.uses(), b.conflict()));
         JsonNode search = k.get("/api/v1/brains/brain-a/search?q=graphspindle%20neo4j%20gspin");
         assertThat(texts(search.get("hits"), "entity.id")).contains(a.gs()).doesNotContainAnyElementsOf(bIds);
-        JsonNode context = k.get("/api/v1/brains/brain-a/entities/" + a.gs());
+        JsonNode context = k.get("/api/v1/brains/brain-a/entities/" + a.gs() + "?include=claims");
         assertThat(allIdsIn(context)).contains(a.uses()).doesNotContainAnyElementsOf(bIds);
         JsonNode hood = k.get("/api/v1/brains/brain-a/entities/" + a.gs() + "/neighbors?depth=2");
         assertThat(allIdsIn(hood)).contains(a.neo4j()).doesNotContainAnyElementsOf(bIds);
@@ -77,6 +77,9 @@ class RetrievalIsolationIT extends AbstractNeo4jIT {
         Ids b = ids.get("brain-b");
         String base = "/api/v1/brains/brain-a";
         List<Response> reads = List.of(k.raw().get(base + "/entities/" + b.gs()),
+                k.raw().get(base + "/entities/" + b.gs() + "?include=claims"),
+                k.raw().get(base + "/entities/" + b.gs() + "?asOf=2999-01-01"),
+                k.raw().get(base + "/entities/" + b.gs() + "/history"),
                 k.raw().get(base + "/entities/" + b.gs() + "/neighbors"),
                 k.raw().get(base + "/entities/" + b.gs() + "/aliases"),
                 k.raw().get(base + "/claims/" + b.uses()),
@@ -104,7 +107,7 @@ class RetrievalIsolationIT extends AbstractNeo4jIT {
         assertThat(bConflict.get("status").asString()).isEqualTo("OPEN");
         assertThat(k.get("/api/v1/brains/brain-b/claims/" + b.uses()).get("claim").get("status").asString())
                 .isEqualTo("ACTIVE");
-        assertThat(k.get("/api/v1/brains/brain-b/entities/" + b.gs()).get("entity").get("description").asString())
+        assertThat(k.get("/api/v1/brains/brain-b/entities/" + b.gs() + "?include=claims").get("entity").get("description").asString())
                 .isEqualTo("Graph engine");
         assertThat(count("MATCH (a {brainId: 'brain-a'})-[r]-(b {brainId: 'brain-b'}) RETURN count(r)", Map.of()))
                 .isZero();

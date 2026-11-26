@@ -1,7 +1,10 @@
 package io.graphspindle.api.rest;
 
-import io.graphspindle.retrieval.EntityContextService;
-import io.graphspindle.retrieval.EntityContextService.EntityContext;
+import io.graphspindle.retrieval.EntityReadService;
+import io.graphspindle.retrieval.EntityReadService.EntityRead;
+import io.graphspindle.retrieval.NodeViewService;
+import io.graphspindle.retrieval.NodeViewService.NodeHistory;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.graphspindle.retrieval.NeighborhoodService;
 import io.graphspindle.retrieval.NeighborhoodService.NeighborhoodResult;
 import io.graphspindle.retrieval.SearchService;
@@ -22,12 +25,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class RetrievalController {
 
     private final SearchService search;
-    private final EntityContextService context;
+    private final EntityReadService reads;
+    private final NodeViewService nodes;
     private final NeighborhoodService neighborhood;
 
-    public RetrievalController(SearchService search, EntityContextService context, NeighborhoodService neighborhood) {
+    public RetrievalController(SearchService search, EntityReadService reads, NodeViewService nodes,
+            NeighborhoodService neighborhood) {
         this.search = search;
-        this.context = context;
+        this.reads = reads;
+        this.nodes = nodes;
         this.neighborhood = neighborhood;
     }
 
@@ -39,10 +45,23 @@ public class RetrievalController {
     }
 
     @GetMapping("/entities/{entityId}")
-    @Operation(summary = "Entity context: aliases, active claims with sources, disputed claims, conflicts")
-    public EntityContext entity(@PathVariable String brainId, @PathVariable String entityId,
-            @RequestParam(required = false) Integer maxClaims) {
-        return context.context(KnowledgeController.actor(), brainId, entityId, maxClaims);
+    @Operation(summary = "Plain entity view: node fields, properties and relationships. include=claims adds claims, "
+            + "sources, disputes and the agent text; asOf (ISO date or date-time) shows what the brain believed then")
+    public EntityRead entity(@PathVariable String brainId, @PathVariable String entityId,
+            @RequestParam(required = false) Integer maxClaims,
+            @Parameter(description = "comma-separated: claims") @RequestParam(required = false) List<String> include,
+            @Parameter(description = "record-time point, e.g. 2026-11-20 (end of day UTC) or 2026-11-20T10:15:30Z")
+            @RequestParam(required = false) String asOf) {
+        return reads.read(KnowledgeController.actor(), brainId, entityId, NodeViewService.parseAsOf(asOf),
+                EntityReadService.includesClaims(include), maxClaims);
+    }
+
+    @GetMapping("/entities/{entityId}/history")
+    @Operation(summary = "Chronological property and relationship changes of the entity (record time), with "
+            + "the claim, origin, ingestion and sources of each change")
+    public NodeHistory history(@PathVariable String brainId, @PathVariable String entityId,
+            @RequestParam(required = false) Integer limit) {
+        return nodes.history(KnowledgeController.actor(), brainId, entityId, limit);
     }
 
     @GetMapping("/entities/{entityId}/neighbors")

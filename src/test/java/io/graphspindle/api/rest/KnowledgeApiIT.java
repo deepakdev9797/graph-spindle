@@ -54,10 +54,10 @@ class KnowledgeApiIT extends AbstractNeo4jIT {
         assertThat(distinct.status()).isEqualTo(201);
         assertThat(distinct.body().get("entity").get("canonicalKey").asString()).isEqualTo("project:graphspindle~2");
 
-        JsonNode e = k.get("/api/v1/brains/dev/entities/" + gs).get("entity");
+        JsonNode e = k.get("/api/v1/brains/dev/entities/" + gs + "?include=claims").get("entity");
         assertThat(e.get("origin").asString()).isEqualTo("MANUAL");
         assertThat(e.get("descriptionLocked").asBoolean()).isTrue();
-        assertThat(k.get("/api/v1/brains/dev/entities/" + java).get("entity").get("attributes").get("category")
+        assertThat(k.get("/api/v1/brains/dev/entities/" + java + "?include=claims").get("entity").get("attributes").get("category")
                 .asString()).isEqualTo("LANGUAGE");
 
         JsonNode page = k.get("/api/v1/brains/dev/entities?limit=3");
@@ -104,7 +104,7 @@ class KnowledgeApiIT extends AbstractNeo4jIT {
 
     @Test
     void entityContextAndClaimProvenance() {
-        JsonNode c = k.get("/api/v1/brains/dev/entities/" + gs);
+        JsonNode c = k.get("/api/v1/brains/dev/entities/" + gs + "?include=claims");
         assertThat(c.get("redirectedFrom").isNull()).isTrue();
         assertThat(texts(c.get("claims"), "claim.predicate")).containsExactlyInAnyOrder("WORKS_ON", "WRITTEN_IN",
                 "USES", "USES", "LICENSED_UNDER");

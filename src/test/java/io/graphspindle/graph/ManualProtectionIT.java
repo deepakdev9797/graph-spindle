@@ -45,7 +45,7 @@ class ManualProtectionIT extends AbstractGraphIT {
         JsonNode claim = k.get("/api/v1/brains/dev/claims/" + license).get("claim");
         assertThat(claim.get("origin").asString()).isEqualTo("MANUAL");
         assertThat(claim.get("createdByPrincipal").asString()).isEqualTo("admin");
-        assertThat(k.get("/api/v1/brains/dev/entities/" + gs).get("text").asString()).contains("MANUAL");
+        assertThat(k.get("/api/v1/brains/dev/entities/" + gs + "?include=claims").get("text").asString()).contains("MANUAL");
 
         ApplyResult r = apply(dev, new SupersedeClaimCommand(0, license, true, "llm says MIT",
                 relation(existing(gs, "Project"), "LICENSED_UNDER", existing(mit, "Standard"), Polarity.POSITIVE)));
