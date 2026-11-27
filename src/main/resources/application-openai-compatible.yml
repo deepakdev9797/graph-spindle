@@ -1,0 +1,13 @@
+# Profile "openai-compatible": LM Studio, vLLM, llama.cpp server, Groq, OpenRouter ... through the OpenAI
+# client. Set GRAPHSPINDLE_OPENAI_BASE_URL including /v1, e.g. http://localhost:1234/v1 (LM Studio),
+# http://localhost:8000/v1 (vLLM), http://localhost:8080/v1 (llama.cpp; move GraphSpindle to another
+# port), https://api.groq.com/openai/v1 (Groq, remote). An empty key means no-auth mode.
+spring:
+  ai:
+    model:
+      chat: openai
+    openai:
+      base-url: ${GRAPHSPINDLE_OPENAI_BASE_URL:http://localhost:1234/v1}
+      api-key: ${GRAPHSPINDLE_OPENAI_API_KEY:}
+      chat:
+        model: ${GRAPHSPINDLE_OPENAI_MODEL:local-model}

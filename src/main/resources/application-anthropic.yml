@@ -1,0 +1,10 @@
+# Profile "anthropic" (remote: ingested content is sent to Anthropic): SPRING_PROFILES_ACTIVE=anthropic
+# The key only ever comes from GRAPHSPINDLE_ANTHROPIC_API_KEY.
+spring:
+  ai:
+    model:
+      chat: anthropic
+    anthropic:
+      api-key: ${GRAPHSPINDLE_ANTHROPIC_API_KEY:}
+      chat:
+        model: ${GRAPHSPINDLE_ANTHROPIC_MODEL:claude-sonnet-5-5}

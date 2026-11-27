@@ -1,0 +1,5 @@
+# Profile "none": no LLM. Ingestion answers 503 LLM_UNAVAILABLE; management and retrieval work.
+spring:
+  ai:
+    model:
+      chat: none

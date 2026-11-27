@@ -1,0 +1,51 @@
+# GraphSpindle + Neo4j (+ optional Ollama). UNTESTED: Docker was not available on the development machine.
+#   cp .env.example .env    # then set GRAPHSPINDLE_ADMIN_API_KEY and GRAPHSPINDLE_NEO4J_PASSWORD
+#   docker compose up -d                      # app + neo4j, LLM provider from .env
+#   docker compose --profile ollama up -d     # also an Ollama container (then: ollama pull gemma4:12b)
+# Every port is published on 127.0.0.1 only. Neo4j is never exposed beyond this machine.
+services:
+  neo4j:
+    image: neo4j:2026.10.2-community
+    environment:
+      NEO4J_AUTH: neo4j/${GRAPHSPINDLE_NEO4J_PASSWORD:?set GRAPHSPINDLE_NEO4J_PASSWORD in .env}
+      NEO4J_server_memory_heap_max__size: 1G
+      # only for the healthcheck below (compose interpolates it into the container environment)
+      GRAPHSPINDLE_NEO4J_PASSWORD: ${GRAPHSPINDLE_NEO4J_PASSWORD}
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$$GRAPHSPINDLE_NEO4J_PASSWORD\" 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+  graphspindle:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      GRAPHSPINDLE_BIND_ADDRESS: 0.0.0.0
+      GRAPHSPINDLE_NEO4J_URI: bolt://neo4j:7687
+      GRAPHSPINDLE_NEO4J_USERNAME: neo4j
+      GRAPHSPINDLE_ADMIN_API_KEY: ${GRAPHSPINDLE_ADMIN_API_KEY:?set GRAPHSPINDLE_ADMIN_API_KEY in .env}
+      # with --profile ollama: GRAPHSPINDLE_LLM_PROVIDER=ollama and GRAPHSPINDLE_OLLAMA_BASE_URL=http://ollama:11434
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  neo4j-data:
+  ollama-models:

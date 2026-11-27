@@ -1,0 +1,11 @@
+# Profile "openai" (remote: ingested content is sent to OpenAI): SPRING_PROFILES_ACTIVE=openai
+# The key only ever comes from GRAPHSPINDLE_OPENAI_API_KEY.
+spring:
+  ai:
+    model:
+      chat: openai
+    openai:
+      base-url: ${GRAPHSPINDLE_OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${GRAPHSPINDLE_OPENAI_API_KEY:}
+      chat:
+        model: ${GRAPHSPINDLE_OPENAI_MODEL:gpt-4.1-mini}

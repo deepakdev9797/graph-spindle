@@ -23,6 +23,16 @@ class ProviderSelectionTest {
         ApplicationContext context;
         @Autowired
         IngestionLlm llm;
+        @Autowired
+        io.graphspindle.admin.SystemInfoService systemInfo;
+
+        /** M10 ProviderSelectionIT: system info reports provider, host and the data transfer. */
+        void expectInfo(String host, boolean leaves, String structuredOutput) {
+            var info = systemInfo.info(io.graphspindle.common.Actor.LOCAL_ADMIN);
+            assertThat(info.llm().host()).isEqualTo(host);
+            assertThat(info.dataLeavesMachine()).isEqualTo(leaves);
+            assertThat(info.llm().structuredOutput()).isEqualTo(structuredOutput);
+        }
 
         void expect(String provider, String model) {
             assertThat(context.getBeansOfType(ChatModel.class)).hasSize(provider.equals("none") ? 0 : 1);
@@ -40,6 +50,7 @@ class ProviderSelectionTest {
         @Test
         void ollamaIsTheLocalDefault() {
             expect("ollama", "gemma4:12b");
+            expectInfo("localhost", false, "AUTO:PROVIDER_SCHEMA");
         }
     }
 
@@ -51,6 +62,7 @@ class ProviderSelectionTest {
         @Test
         void openAiCompatibleServerByBaseUrl() {
             expect("openai", "local-model");
+            expectInfo("localhost", false, "AUTO:PROMPT");
         }
     }
 
@@ -61,6 +73,7 @@ class ProviderSelectionTest {
         @Test
         void anthropic() {
             expect("anthropic", null);
+            expectInfo("api.anthropic.com", true, "AUTO:PROMPT");
         }
     }
 
@@ -70,6 +83,7 @@ class ProviderSelectionTest {
         @Test
         void noneByDefault() {
             expect("none", null);
+            expectInfo(null, false, "AUTO");
         }
     }
 }

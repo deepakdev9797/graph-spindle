@@ -1,0 +1,10 @@
+# Profile "ollama" (local, the default provider): SPRING_PROFILES_ACTIVE=ollama
+# Content stays on this machine as long as the Ollama base URL is local.
+spring:
+  ai:
+    model:
+      chat: ollama
+    ollama:
+      base-url: ${GRAPHSPINDLE_OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        model: ${GRAPHSPINDLE_OLLAMA_MODEL:gemma4:12b}
