@@ -1,9 +1,12 @@
 package io.graphspindle.brain;
 
+import io.graphspindle.common.Actor;
+import io.graphspindle.common.BrainAccessGuard;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Normalizer;
+import io.graphspindle.common.Permission;
 import io.graphspindle.graph.BrainRecord;
 import io.graphspindle.graph.BrainStore;
 import io.graphspindle.vocabulary.AttributePredicateDef;
@@ -23,8 +26,9 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Brain lifecycle and configuration. Authorization ({@code BrainAccessGuard}) is added in M9.
- * Unknown and syntactically invalid brain ids both yield {@code BRAIN_NOT_FOUND}.
+ * Brain lifecycle and configuration. Every public method that takes a brain id first authorizes the
+ * {@link Actor} with {@link BrainAccessGuard} (ADR-033). Unknown, syntactically invalid and invisible
+ * (no grant) brain ids all yield {@code BRAIN_NOT_FOUND}.
  */
 @Service
 public class BrainService {
@@ -55,7 +59,9 @@ public class BrainService {
         this.reader = jsonMapper.rebuild().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
     }
 
-    public Brain create(NewBrain request) {
+    /** Global admin only. */
+    public Brain create(Actor actor, NewBrain request) {
+        BrainAccessGuard.requireGlobalAdmin(actor);
         BrainScope scope = BrainScope.of(request.id());
         String name = requireName(request.name());
         String description = optional("description", request.description(), MAX_DESCRIPTION);
@@ -69,16 +75,24 @@ public class BrainService {
         return toBrain(r);
     }
 
-    public List<Brain> list() {
-        return store.listAll().stream().map(this::toBrain).toList();
+    /** The brains the actor can see (any permission); all of them for the global admin. */
+    public List<Brain> list(Actor actor) {
+        BrainAccessGuard.requireAuthenticated(actor);
+        return store.listAll().stream().filter(b -> actor.canSee(b.id())).map(this::toBrain).toList();
     }
 
-    public Brain get(String brainId) {
+    public Brain get(Actor actor, String brainId) {
+        BrainAccessGuard.require(actor, brainId, Permission.READ);
         return toBrain(find(brainId));
     }
 
-    /** Resolves an existing, ACTIVE brain to its scope; {@code CONFLICT_STATE} while it is being deleted. */
-    public BrainScope requireActive(String brainId) {
+    /**
+     * Authorizes the actor for the brain ({@link BrainAccessGuard}) and resolves an existing, ACTIVE
+     * brain to its scope; {@code CONFLICT_STATE} while it is being deleted. The entry point of every
+     * brain-scoped service method.
+     */
+    public BrainScope requireActive(Actor actor, String brainId, Permission required) {
+        BrainAccessGuard.require(actor, brainId, required);
         BrainRecord r = find(brainId);
         if (!r.active()) {
             throw new GraphSpindleException(ErrorCode.CONFLICT_STATE, "brain is being deleted");
@@ -86,7 +100,8 @@ public class BrainService {
         return BrainScope.of(r.id());
     }
 
-    public Brain update(String brainId, Long expectedVersion, BrainUpdate update) {
+    public Brain update(Actor actor, String brainId, Long expectedVersion, BrainUpdate update) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         BrainScope scope = scopeOrNotFound(brainId);
         String name = update.name() == null ? null : requireName(update.name());
         String description = optional("description", update.description(), MAX_DESCRIPTION);
@@ -205,7 +220,8 @@ public class BrainService {
     }
 
     /** Deletes the brain and all its nodes. {@code confirm} must equal the brain id. */
-    public void delete(String brainId, String confirm) {
+    public void delete(Actor actor, String brainId, String confirm) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         BrainScope scope = BrainScope.of(find(brainId).id());
         if (!brainId.equals(confirm)) {
             throw GraphSpindleException.validation("deleting a brain requires confirm=<brainId>");
@@ -213,13 +229,15 @@ public class BrainService {
         store.delete(scope);
     }
 
-    public BrainVocabularyView vocabularyView(String brainId) {
-        Brain brain = get(brainId);
+    public BrainVocabularyView vocabularyView(Actor actor, String brainId) {
+        Brain brain = get(actor, brainId);
         return new BrainVocabularyView(brain, resolve(brain.config().vocabulary()));
     }
 
     /** Validates (SCHEMA §11) and stores a new vocabulary config; bumps {@code configVersion}. */
-    public BrainVocabularyView updateVocabulary(String brainId, Long expectedVersion, VocabularyConfig vocabulary) {
+    public BrainVocabularyView updateVocabulary(Actor actor, String brainId, Long expectedVersion,
+            VocabularyConfig vocabulary) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         requireVocabularyMutable();
         if (vocabulary == null) {
             throw GraphSpindleException.validation("vocabulary configuration is required");
@@ -235,8 +253,9 @@ public class BrainService {
      * Applies a change to the brain's vocabulary config with the same optimistic locking, validation
      * and in-use guard as {@link #updateVocabulary}. The change function may throw to reject.
      */
-    Brain mutateVocabulary(String brainId, Long expectedVersion,
+    Brain mutateVocabulary(Actor actor, String brainId, Long expectedVersion,
             java.util.function.UnaryOperator<VocabularyConfig> change) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         requireVocabularyMutable();
         BrainScope scope = BrainScope.of(find(brainId).id());
         return writeConfig(scope, expectedVersion, current -> validated(current.config()
@@ -269,7 +288,7 @@ public class BrainService {
     }
 
     public BrainConfig config(BrainScope scope) {
-        return get(scope.brainId()).config();
+        return toBrain(find(scope.brainId())).config();
     }
 
     private BrainVocabulary resolve(VocabularyConfig config) {

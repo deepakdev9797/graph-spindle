@@ -2,6 +2,7 @@ package io.graphspindle.admin;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.graph.ProjectionVerifier;
 import java.util.List;
@@ -29,7 +30,7 @@ public class ProjectionCheckService {
     }
 
     public ProjectionReport check(Actor actor, String brainId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.ADMIN);
         List<Drift> drift = verifier.verify(scope).stream().map(d -> new Drift(d.kind(), d.entityId(), d.claimId(),
                 d.detail())).toList();
         return new ProjectionReport(scope.brainId(), drift.isEmpty(), drift);

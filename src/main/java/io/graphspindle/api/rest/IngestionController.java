@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.ingestion.IngestRequest;
@@ -38,14 +39,14 @@ public class IngestionController {
             + " and applies it (requestId makes retries idempotent)")
     public ResponseEntity<IngestResult> ingest(@PathVariable String brainId, @RequestBody IngestRequest request,
             @RequestParam(defaultValue = "false") boolean dryRun, @RequestParam(defaultValue = "false") boolean force) {
-        IngestResult r = ingestions.ingest(KnowledgeController.actor(), brainId, request, dryRun, force);
+        IngestResult r = ingestions.ingest(CurrentActor.require(), brainId, request, dryRun, force);
         return ResponseEntity.status(status(r)).body(r);
     }
 
     @GetMapping("/{ingestionId}")
     @Operation(summary = "An ingestion's status and stored result")
     public IngestResult get(@PathVariable String brainId, @PathVariable String ingestionId) {
-        return ingestions.get(KnowledgeController.actor(), brainId, ingestionId);
+        return ingestions.get(CurrentActor.require(), brainId, ingestionId);
     }
 
     @GetMapping
@@ -54,7 +55,7 @@ public class IngestionController {
         if (requestId == null || requestId.isBlank()) {
             throw GraphSpindleException.validation("requestId is required");
         }
-        return ingestions.getByRequestId(KnowledgeController.actor(), brainId, requestId);
+        return ingestions.getByRequestId(CurrentActor.require(), brainId, requestId);
     }
 
     static int status(IngestResult r) {

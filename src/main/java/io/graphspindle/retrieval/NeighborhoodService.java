@@ -2,6 +2,7 @@ package io.graphspindle.retrieval;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
@@ -53,7 +54,7 @@ public class NeighborhoodService {
 
     public NeighborhoodResult neighbors(Actor actor, String brainId, String entityId, Integer depth,
             List<String> predicates, Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         int d = depth == null ? 1 : depth;
         if (d < 1) {
             throw GraphSpindleException.validation("depth must be at least 1");

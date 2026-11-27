@@ -89,6 +89,24 @@ class SpringAiIngestionLlmTest {
     }
 
     @Test
+    void autoModeSendsTheSchemaOnlyToOllama() {
+        SpringAiIngestionLlm g = gateway(null, LlmProperties.defaults());
+        assertThat(g.sendsSchema("ollama", false)).isTrue();
+        assertThat(g.sendsSchema("openai", false)).isFalse();
+        assertThat(g.sendsSchema("anthropic", true)).as("not even for repairs").isFalse();
+    }
+
+    @Test
+    void anOllamaPromptAtTheInputBudgetIsRejectedAsPossiblyTruncated() {
+        SpringAiIngestionLlm g = gateway(null, new LlmProperties(true, null, 0.0, 4096, 32768, null, null, null));
+        g.checkNotTruncated("ollama", 28_671);
+        g.checkNotTruncated("openai", 40_000);
+        g.checkNotTruncated("ollama", null);
+        assertThatThrownBy(() -> g.checkNotTruncated("ollama", 28_672)).isInstanceOf(LlmException.class)
+                .hasMessageContaining("truncated");
+    }
+
+    @Test
     void theDeadlineIsEnforced() {
         OllamaLikeChatModel m = new OllamaLikeChatModel();
         m.delayMs = 2000;

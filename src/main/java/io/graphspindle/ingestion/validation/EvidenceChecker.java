@@ -205,35 +205,90 @@ public final class EvidenceChecker {
 
     /** NFKC, format characters removed, quotes folded, lowercase, whitespace collapsed. */
     static String normalize(String s) {
+        return mapped(s).text();
+    }
+
+    /**
+     * Where the evidence occurs in {@code content} under exactly the normalization of
+     * {@link #isSupported}: {@code [start, end)} offsets into the original content (at most 64
+     * occurrences). Lets callers look at the original text around an accepted quote (ADR-034).
+     */
+    public static List<int[]> locate(String content, String evidence) {
+        String needle = normalize(evidence);
+        List<int[]> out = new ArrayList<>();
+        if (needle.isEmpty() || content == null) {
+            return out;
+        }
+        Mapped h = mapped(content);
+        for (int idx = h.text().indexOf(needle); idx >= 0 && out.size() < MAX_OCCURRENCES;
+                idx = h.text().indexOf(needle, idx + 1)) {
+            out.add(new int[] {h.start()[idx], h.end()[idx + needle.length() - 1]});
+        }
+        return out;
+    }
+
+    /** Normalized text with, per normalized char, the original {@code [start, end)} it came from. */
+    record Mapped(String text, int[] start, int[] end) {
+    }
+
+    static Mapped mapped(String s) {
         if (s == null) {
-            return "";
+            return new Mapped("", new int[0], new int[0]);
         }
-        String n = Normalizer.normalize(s, Normalizer.Form.NFKC);
-        StringBuilder out = new StringBuilder(n.length());
+        StringBuilder out = new StringBuilder(s.length());
+        int[] starts = new int[s.length() * 2 + 4];
+        int[] ends = new int[starts.length];
         boolean space = false;
-        for (int i = 0; i < n.length(); ) {
-            int cp = n.codePointAt(i);
-            i += Character.charCount(cp);
-            if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)) {
-                space = true;
-                continue;
+        int n = s.length();
+        for (int i = 0; i < n; ) {
+            int chunkStart = i;
+            i += Character.charCount(s.codePointAt(i));
+            // a base character with its combining marks is normalized as one unit (NFKC composes them)
+            while (i < n) {
+                int next = s.codePointAt(i);
+                int t = Character.getType(next);
+                if (t != Character.NON_SPACING_MARK && t != Character.ENCLOSING_MARK
+                        && t != Character.COMBINING_SPACING_MARK) {
+                    break;
+                }
+                i += Character.charCount(next);
             }
-            int type = Character.getType(cp);
-            if (type == Character.FORMAT || type == Character.CONTROL) {
-                continue;
+            String chunk = Normalizer.normalize(s.substring(chunkStart, i), Normalizer.Form.NFKC);
+            for (int j = 0; j < chunk.length(); ) {
+                int cp = chunk.codePointAt(j);
+                j += Character.charCount(cp);
+                if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)) {
+                    space = true;
+                    continue;
+                }
+                int type = Character.getType(cp);
+                if (type == Character.FORMAT || type == Character.CONTROL) {
+                    continue;
+                }
+                cp = switch (cp) {
+                    case '‘', '’', '‚', '‛', '′', '`' -> '\'';
+                    case '“', '”', '„', '‟', '″', '«', '»' -> '"';
+                    case '–', '—', '−' -> '-';
+                    default -> cp;
+                };
+                String lower = new String(Character.toChars(cp)).toLowerCase(Locale.ROOT);
+                if (out.length() + lower.length() + 1 >= starts.length) {
+                    starts = java.util.Arrays.copyOf(starts, starts.length * 2 + lower.length() + 2);
+                    ends = java.util.Arrays.copyOf(ends, starts.length);
+                }
+                if (space && !out.isEmpty()) {
+                    starts[out.length()] = chunkStart;
+                    ends[out.length()] = chunkStart;
+                    out.append(' ');
+                }
+                space = false;
+                for (int k = 0; k < lower.length(); k++) {
+                    starts[out.length()] = chunkStart;
+                    ends[out.length()] = i;
+                    out.append(lower.charAt(k));
+                }
             }
-            cp = switch (cp) {
-                case '‘', '’', '‚', '‛', '′', '`' -> '\'';
-                case '“', '”', '„', '‟', '″', '«', '»' -> '"';
-                case '–', '—', '−' -> '-';
-                default -> cp;
-            };
-            if (space && !out.isEmpty()) {
-                out.append(' ');
-            }
-            space = false;
-            out.appendCodePoint(cp);
         }
-        return out.toString().toLowerCase(Locale.ROOT);
+        return new Mapped(out.toString(), starts, ends);
     }
 }

@@ -19,7 +19,11 @@ import org.springframework.test.context.DynamicPropertySource;
  * harness (bolt only) is started per test JVM and shared by all subclasses, so Spring's context cache
  * keeps working. Subclasses clean their own data.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+    // ITs send many requests from one principal; RateLimitIT re-declares @SpringBootTest with the defaults
+    "graphspindle.security.rate-limit.requests-per-minute=1000000",
+    "graphspindle.security.rate-limit.ingest-per-minute=1000000",
+    "graphspindle.security.rate-limit.failed-auth-per-minute=1000000"})
 public abstract class AbstractNeo4jIT {
 
     protected static final Neo4j NEO4J;
@@ -67,7 +71,13 @@ public abstract class AbstractNeo4jIT {
         }
     }
 
+    /** A client authenticated with the bootstrap admin key ({@link TestKeys#ADMIN}). */
     protected ApiClient api() {
+        return new ApiClient(baseUrl(), TestKeys.ADMIN);
+    }
+
+    /** A client without any API key. */
+    protected ApiClient anonymous() {
         return new ApiClient(baseUrl());
     }
 
@@ -76,6 +86,7 @@ public abstract class AbstractNeo4jIT {
         registry.add("spring.neo4j.uri", () -> NEO4J.boltURI().toString());
         registry.add("spring.neo4j.authentication.username", () -> "neo4j");
         registry.add("spring.neo4j.authentication.password", () -> "");
+        registry.add("graphspindle.security.admin-api-key", () -> TestKeys.ADMIN);
     }
 
     protected String baseUrl() {

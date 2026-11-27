@@ -1,5 +1,9 @@
 package io.graphspindle.brain;
 
+import io.graphspindle.common.Actor;
+import io.graphspindle.common.BrainAccessGuard;
+import io.graphspindle.common.Permission;
+
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Normalizer;
@@ -71,31 +75,32 @@ public class VocabularyTypeService {
 
     // ---- per-brain reads --------------------------------------------------------------------
 
-    public Versioned<List<NodeType>> nodeTypes(String brainId) {
-        Brain b = brains.get(brainId);
+    public Versioned<List<NodeType>> nodeTypes(Actor actor, String brainId) {
+        Brain b = brains.get(actor, brainId);
         return new Versioned<>(nodeTypes(b.config().vocabulary()), b.configVersion());
     }
 
-    public Versioned<NodeType> nodeType(String brainId, String type) {
-        Brain b = brains.get(brainId);
+    public Versioned<NodeType> nodeType(Actor actor, String brainId, String type) {
+        Brain b = brains.get(actor, brainId);
         return new Versioned<>(find(nodeTypes(b.config().vocabulary()), NodeType::name, type, "node type"),
                 b.configVersion());
     }
 
-    public Versioned<List<RelationshipType>> relationshipTypes(String brainId) {
-        Brain b = brains.get(brainId);
+    public Versioned<List<RelationshipType>> relationshipTypes(Actor actor, String brainId) {
+        Brain b = brains.get(actor, brainId);
         return new Versioned<>(relationshipTypes(b.config().vocabulary()), b.configVersion());
     }
 
-    public Versioned<RelationshipType> relationshipType(String brainId, String name) {
-        Brain b = brains.get(brainId);
+    public Versioned<RelationshipType> relationshipType(Actor actor, String brainId, String name) {
+        Brain b = brains.get(actor, brainId);
         return new Versioned<>(find(relationshipTypes(b.config().vocabulary()), RelationshipType::name, name,
                 "relationship type"), b.configVersion());
     }
 
     // ---- node type mutations ----------------------------------------------------------------
 
-    public Versioned<NodeType> createNodeType(String brainId, Long expectedVersion, NodeType request) {
+    public Versioned<NodeType> createNodeType(Actor actor, String brainId, Long expectedVersion, NodeType request) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
         requireBody(request);
         String name = requireTypeName(request.name());
@@ -104,7 +109,7 @@ public class VocabularyTypeService {
             throw GraphSpindleException.validation("a custom node type is always enabled; omit 'enabled'");
         }
         List<CustomAttribute> attributes = customAttributes(request.properties(), true);
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             VocabularyGuardrails.checkNodeTypeName(registry, cfg, name, null);
             List<CustomEntityType> types = new ArrayList<>(cfg.customEntityTypes());
             types.add(new CustomEntityType(name, request.description().strip(), request.compatibilityGroup(),
@@ -115,11 +120,13 @@ public class VocabularyTypeService {
                 b.configVersion());
     }
 
-    public Versioned<NodeType> updateNodeType(String brainId, String type, Long expectedVersion, NodeType request) {
+    public Versioned<NodeType> updateNodeType(Actor actor, String brainId, String type, Long expectedVersion,
+            NodeType request) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
         requireBody(request);
         String[] resultName = {type};
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             Optional<CustomEntityType> custom = cfg.customEntityTypes().stream()
                     .filter(t -> type.equals(t.name())).findFirst();
             if (custom.isPresent()) {
@@ -134,9 +141,10 @@ public class VocabularyTypeService {
                 b.configVersion());
     }
 
-    public long deleteNodeType(String brainId, String type, Long expectedVersion) {
+    public long deleteNodeType(Actor actor, String brainId, String type, Long expectedVersion) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             if (registry.profile().isCoreEntityType(type)) {
                 throw GraphSpindleException.validation("core node type '" + type + "' is defined in the YAML "
                         + "vocabulary and cannot be deleted; disable it with PUT {\"enabled\": false}");
@@ -260,8 +268,9 @@ public class VocabularyTypeService {
 
     // ---- relationship type mutations --------------------------------------------------------
 
-    public Versioned<RelationshipType> createRelationshipType(String brainId, Long expectedVersion,
+    public Versioned<RelationshipType> createRelationshipType(Actor actor, String brainId, Long expectedVersion,
             RelationshipType request) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
         requireBody(request);
         String name = requireRelationName(request.name());
@@ -270,7 +279,7 @@ public class VocabularyTypeService {
             throw GraphSpindleException.validation("a custom relationship type is always enabled; omit 'enabled'");
         }
         coreOnlyFieldsAbsent(request);
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             VocabularyGuardrails.checkRelationName(registry, cfg, name, null);
             List<CustomRelationPredicate> rels = new ArrayList<>(cfg.customRelationPredicates());
             rels.add(new CustomRelationPredicate(name, request.description().strip(), request.sourceTypes(),
@@ -281,12 +290,13 @@ public class VocabularyTypeService {
                 "relationship type"), b.configVersion());
     }
 
-    public Versioned<RelationshipType> updateRelationshipType(String brainId, String relation, Long expectedVersion,
+    public Versioned<RelationshipType> updateRelationshipType(Actor actor, String brainId, String relation, Long expectedVersion,
             RelationshipType request) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
         requireBody(request);
         String[] resultName = {relation};
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             Optional<CustomRelationPredicate> custom = cfg.customRelationPredicates().stream()
                     .filter(r -> relation.equals(r.name())).findFirst();
             if (custom.isPresent()) {
@@ -302,9 +312,10 @@ public class VocabularyTypeService {
                 resultName[0], "relationship type"), b.configVersion());
     }
 
-    public long deleteRelationshipType(String brainId, String relation, Long expectedVersion) {
+    public long deleteRelationshipType(Actor actor, String brainId, String relation, Long expectedVersion) {
+        BrainAccessGuard.require(actor, brainId, Permission.ADMIN);
         brains.requireVocabularyMutable();
-        Brain b = mutate(brainId, expectedVersion, cfg -> {
+        Brain b = mutate(actor, brainId, expectedVersion, cfg -> {
             if (registry.profile().isCoreRelation(relation)) {
                 throw GraphSpindleException.validation("core relationship type '" + relation + "' is defined in "
                         + "the YAML vocabulary and cannot be deleted; disable it with PUT {\"enabled\": false}");
@@ -419,8 +430,8 @@ public class VocabularyTypeService {
 
     // ---- helpers ----------------------------------------------------------------------------
 
-    private Brain mutate(String brainId, Long expectedVersion, UnaryOperator<VocabularyConfig> change) {
-        return brains.mutateVocabulary(brainId, expectedVersion, change);
+    private Brain mutate(Actor actor, String brainId, Long expectedVersion, UnaryOperator<VocabularyConfig> change) {
+        return brains.mutateVocabulary(actor, brainId, expectedVersion, change);
     }
 
     private static List<CustomAttribute> customAttributes(List<PropertyDefinition> properties, boolean create) {

@@ -2,6 +2,7 @@ package io.graphspindle.retrieval;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Paging;
@@ -117,7 +118,7 @@ public class NodeViewService {
 
     /** The entity now: projected properties and ACTIVE relationships. */
     public NodeView current(Actor actor, String brainId, String entityId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         EntityView e = resolve(scope, entityId);
         List<ClaimView> relations = reader.relationClaimsOfEntity(scope, e.id(), List.of("ACTIVE"),
                 MAX_RELATIONSHIPS + 1).stream().filter(NodeViewService::positive).toList();
@@ -129,7 +130,7 @@ public class NodeViewService {
     /** What the brain believed about the entity at {@code asOf} (record time). */
     public NodeView asOf(Actor actor, String brainId, String entityId, Instant asOf) {
         Objects.requireNonNull(asOf, "asOf");
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         EntityView e = resolveAt(scope, entityId, asOf);
         List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), asOf, MAX_TIMELINE_CLAIMS + 1);
         boolean truncated = timeline.size() > MAX_TIMELINE_CLAIMS;
@@ -164,7 +165,7 @@ public class NodeViewService {
 
     /** The entity's property and relationship changes in record time, oldest first. */
     public NodeHistory history(Actor actor, String brainId, String entityId, Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         int max = Paging.limit(limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
         EntityView e = resolve(scope, entityId);
         List<TimedClaim> timeline = reader.claimTimeline(scope, e.id(), null, MAX_TIMELINE_CLAIMS + 1);

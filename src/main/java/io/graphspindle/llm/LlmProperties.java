@@ -24,6 +24,12 @@ public record LlmProperties(Boolean enabled, String model, Double temperature, I
 
     /** How the JSON answer is requested from the provider. */
     public enum StructuredOutput {
+        /**
+         * Default: {@code PROVIDER_SCHEMA} for Ollama (verified with gemma4), {@code PROMPT} for every
+         * other provider, whose acceptance of our {@code $defs}/{@code $ref} schema is unverified; there
+         * the schema is never sent as a provider format, not even for repairs (ADR-035).
+         */
+        AUTO,
         /** Our JSON schema is passed as the provider's native structured-output format (if supported). */
         PROVIDER_SCHEMA,
         /** The schema is only in the prompt; the raw text is parsed (repairs still use the provider schema). */
@@ -38,7 +44,7 @@ public record LlmProperties(Boolean enabled, String model, Double temperature, I
         contextTokens = contextTokens == null ? 32768 : contextTokens;
         callTimeout = callTimeout == null ? Duration.ofSeconds(90) : callTimeout;
         timeout = timeout == null ? Duration.ofSeconds(120) : timeout;
-        structuredOutput = structuredOutput == null ? StructuredOutput.PROVIDER_SCHEMA : structuredOutput;
+        structuredOutput = structuredOutput == null ? StructuredOutput.AUTO : structuredOutput;
         if (maxOutputTokens <= 0 || contextTokens <= 0 || callTimeout.isNegative() || callTimeout.isZero()
                 || timeout.isNegative() || timeout.isZero()) {
             throw new IllegalArgumentException("graphspindle.llm: token counts and timeouts must be positive");

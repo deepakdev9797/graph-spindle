@@ -2,6 +2,7 @@ package io.graphspindle.retrieval;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Paging;
@@ -61,7 +62,7 @@ public class EntityContextService {
     }
 
     public EntityContext context(Actor actor, String brainId, String entityId, Integer maxClaims) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         int max = Paging.limit(maxClaims, DEFAULT_MAX_CLAIMS, MAX_CLAIMS);
         EntityView e = (Paging.plausibleId(entityId) ? reader.resolveEntity(scope, entityId)
                 : java.util.Optional.<EntityView>empty())

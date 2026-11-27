@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.admin.ProjectionCheckService;
 import io.graphspindle.admin.ProjectionCheckService.ProjectionReport;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,6 +24,6 @@ public class AdminController {
     @GetMapping("/brains/{brainId}/projection-check")
     @Operation(summary = "Recompute projections from claims and report drift (read-only)")
     public ProjectionReport projectionCheck(@PathVariable String brainId) {
-        return projections.check(KnowledgeController.actor(), brainId);
+        return projections.check(CurrentActor.require(), brainId);
     }
 }

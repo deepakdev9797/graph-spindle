@@ -42,8 +42,9 @@ class PromptBudgetAndCueProximityTest {
     }
 
     @Test
-    void evidenceOutsideTheContentFallsBackToTheWholeContent() {
-        assertThat(cues.presentNear("Actually it's MIT.", "a quote from a source summary")).isTrue();
+    void evidenceOutsideTheContentNeverCountsACueAnywhere() {
+        // ADR-034 (QA M8 finding 4): no "cue anywhere" fallback; an unlocated quote is not an explicit correction
+        assertThat(cues.presentNear("Actually it's MIT.", "a quote from a source summary")).isFalse();
     }
 
     // ------------------------------------------------------------------ budgets
@@ -110,8 +111,11 @@ class PromptBudgetAndCueProximityTest {
 
     @Test
     void estimateIsPessimistic() {
-        assertThat(TokenEstimator.estimate("abcdef")).isEqualTo(2);
-        assertThat(TokenEstimator.estimate("日本語")).isEqualTo(3);
+        // ADR-034: letters/spaces 1 per 2, digits and ASCII punctuation 1 each, BMP non-ASCII 2, emoji 4
+        assertThat(TokenEstimator.estimate("abcdef")).isEqualTo(3);
+        assertThat(TokenEstimator.estimate("12,34.")).isEqualTo(6);
+        assertThat(TokenEstimator.estimate("日本語")).isEqualTo(6);
+        assertThat(TokenEstimator.estimate("\uD83D\uDE00")).isEqualTo(4);
         assertThat(TokenEstimator.estimate("")).isZero();
     }
 }

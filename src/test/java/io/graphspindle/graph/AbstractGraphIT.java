@@ -1,5 +1,6 @@
 package io.graphspindle.graph;
 
+import io.graphspindle.common.Actor;
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.brain.NewBrain;
 import io.graphspindle.common.BrainScope;
@@ -45,12 +46,12 @@ abstract class AbstractGraphIT extends AbstractNeo4jIT {
     protected GraphTransactions transactions;
 
     protected BrainScope brain(String id) {
-        brains.create(new NewBrain(id, "Brain " + id, null, null, null));
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain(id, "Brain " + id, null, null, null));
         return BrainScope.of(id);
     }
 
     protected String selfId(BrainScope scope) {
-        return brains.get(scope.brainId()).selfEntityId();
+        return brains.get(Actor.LOCAL_ADMIN, scope.brainId()).selfEntityId();
     }
 
     protected IngestionRecord ingestion(BrainScope scope, String principal) {

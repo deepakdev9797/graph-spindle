@@ -11,7 +11,7 @@ import java.util.Set;
 public final class Tokens {
 
     private static final Set<String> SYSTEM = Set.of("Entity", "Alias", "Claim", "Ingestion", "SourceRef", "Conflict",
-            "Brain", "ApiKey", "System", "Internal", "HAS_ALIAS", "SUBJECT", "OBJECT", "EVIDENCED_BY", "CITES",
+            "Brain", "ApiKey", "ApiKeyGrant", "System", "Internal", "HAS_ALIAS", "SUBJECT", "OBJECT", "EVIDENCED_BY", "CITES",
             "SUPERSEDES", "MENTIONED_IN", "SUBMITTED_IN", "DESCRIBES", "MERGED_INTO", "INVOLVES", "RAISED_BY");
 
     private Tokens() {

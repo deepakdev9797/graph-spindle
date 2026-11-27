@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.common.Page;
 import io.graphspindle.conflict.ConflictService;
 import io.graphspindle.conflict.ConflictService.ConflictInfo;
@@ -31,19 +32,19 @@ public class ConflictController {
     public Page<ConflictInfo> list(@PathVariable String brainId, @RequestParam(required = false) String status,
             @RequestParam(required = false) String kind, @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return conflicts.list(KnowledgeController.actor(), brainId, status, kind, cursor, limit);
+        return conflicts.list(CurrentActor.require(), brainId, status, kind, cursor, limit);
     }
 
     @GetMapping("/{conflictId}")
     @Operation(summary = "A conflict with the claims and entities it involves")
     public ConflictInfo get(@PathVariable String brainId, @PathVariable String conflictId) {
-        return conflicts.get(KnowledgeController.actor(), brainId, conflictId);
+        return conflicts.get(CurrentActor.require(), brainId, conflictId);
     }
 
     @PostMapping("/{conflictId}/resolve")
     @Operation(summary = "Resolve: KEEP_EXISTING, ACCEPT_INCOMING, KEEP_BOTH, MERGE or NOT_DUPLICATE")
     public ResolveResult resolve(@PathVariable String brainId, @PathVariable String conflictId,
             @RequestBody Resolve request) {
-        return conflicts.resolve(KnowledgeController.actor(), brainId, conflictId, request);
+        return conflicts.resolve(CurrentActor.require(), brainId, conflictId, request);
     }
 }

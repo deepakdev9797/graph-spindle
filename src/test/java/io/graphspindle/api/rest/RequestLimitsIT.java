@@ -25,6 +25,7 @@ class RequestLimitsIT extends AbstractNeo4jIT {
         byte[] tail = "\"}".getBytes(StandardCharsets.UTF_8);
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/brains"))
                 .header("Content-Type", "application/json")
+                .header("X-API-Key", io.graphspindle.support.TestKeys.ADMIN)
                 .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new SequenceInputStream(Collections.enumeration(
                         List.<InputStream>of(new ByteArrayInputStream(head), new ByteArrayInputStream(filler),
                                 new ByteArrayInputStream(tail))))))

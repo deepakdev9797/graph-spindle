@@ -53,19 +53,33 @@ public abstract class AbstractMcpIT extends AbstractIngestionIT {
         }
     }
 
+    /** An MCP client authenticated with the bootstrap admin key. */
     protected McpSyncClient client() {
-        var transport = HttpClientStreamableHttpTransport.builder(baseUrl()).endpoint("/mcp").build();
-        return McpClient.sync(transport).requestTimeout(Duration.ofSeconds(60)).build();
+        return client(TestKeys.ADMIN);
+    }
+
+    /** An MCP client sending {@code apiKey} in {@code X-API-Key} (null: no key). */
+    protected McpSyncClient client(String apiKey) {
+        var builder = HttpClientStreamableHttpTransport.builder(baseUrl()).endpoint("/mcp");
+        if (apiKey != null) {
+            builder = builder.httpRequestCustomizer((b, method, uri, body, ctx) -> b.header("X-API-Key", apiKey));
+        }
+        return McpClient.sync(builder.build()).requestTimeout(Duration.ofSeconds(60)).build();
     }
 
     protected ToolResult call(String tool, Object... keyValues) {
+        return call(mcp, tool, keyValues);
+    }
+
+    /** A tool call through the given client. */
+    protected static ToolResult call(McpSyncClient client, String tool, Object... keyValues) {
         Map<String, Object> args = new LinkedHashMap<>();
         for (int i = 0; i < keyValues.length; i += 2) {
             if (keyValues[i + 1] != null) {
                 args.put((String) keyValues[i], keyValues[i + 1]);
             }
         }
-        McpSchema.CallToolResult r = mcp.callTool(new McpSchema.CallToolRequest(tool, args, null));
+        McpSchema.CallToolResult r = client.callTool(new McpSchema.CallToolRequest(tool, args, null));
         assertThat(r.content()).as(tool).hasSize(1);
         String text = ((McpSchema.TextContent) r.content().get(0)).text();
         return new ToolResult(Boolean.TRUE.equals(r.isError()), JSON.readTree(text));

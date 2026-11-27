@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.retrieval.EntityReadService;
 import io.graphspindle.retrieval.EntityReadService.EntityRead;
 import io.graphspindle.retrieval.NodeViewService;
@@ -41,7 +42,7 @@ public class RetrievalController {
     @Operation(summary = "Search entities: exact alias first, then fulltext over names, claims and sources (limit ≤ 50)")
     public SearchResult search(@PathVariable String brainId, @RequestParam String q,
             @RequestParam(required = false) List<String> types, @RequestParam(required = false) Integer limit) {
-        return search.search(KnowledgeController.actor(), brainId, q, types, limit);
+        return search.search(CurrentActor.require(), brainId, q, types, limit);
     }
 
     @GetMapping("/entities/{entityId}")
@@ -52,7 +53,7 @@ public class RetrievalController {
             @Parameter(description = "comma-separated: claims") @RequestParam(required = false) List<String> include,
             @Parameter(description = "record-time point, e.g. 2026-11-20 (end of day UTC) or 2026-11-20T10:15:30Z")
             @RequestParam(required = false) String asOf) {
-        return reads.read(KnowledgeController.actor(), brainId, entityId, NodeViewService.parseAsOf(asOf),
+        return reads.read(CurrentActor.require(), brainId, entityId, NodeViewService.parseAsOf(asOf),
                 EntityReadService.includesClaims(include), maxClaims);
     }
 
@@ -61,7 +62,7 @@ public class RetrievalController {
             + "the claim, origin, ingestion and sources of each change")
     public NodeHistory history(@PathVariable String brainId, @PathVariable String entityId,
             @RequestParam(required = false) Integer limit) {
-        return nodes.history(KnowledgeController.actor(), brainId, entityId, limit);
+        return nodes.history(CurrentActor.require(), brainId, entityId, limit);
     }
 
     @GetMapping("/entities/{entityId}/neighbors")
@@ -69,6 +70,6 @@ public class RetrievalController {
     public NeighborhoodResult neighbors(@PathVariable String brainId, @PathVariable String entityId,
             @RequestParam(required = false) Integer depth, @RequestParam(required = false) List<String> predicates,
             @RequestParam(required = false) Integer limit) {
-        return neighborhood.neighbors(KnowledgeController.actor(), brainId, entityId, depth, predicates, limit);
+        return neighborhood.neighbors(CurrentActor.require(), brainId, entityId, depth, predicates, limit);
     }
 }

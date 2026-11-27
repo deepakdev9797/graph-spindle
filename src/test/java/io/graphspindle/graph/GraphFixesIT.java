@@ -1,5 +1,6 @@
 package io.graphspindle.graph;
 
+import io.graphspindle.common.Actor;
 import static io.graphspindle.common.Polarity.NEGATIVE;
 import static io.graphspindle.common.Polarity.POSITIVE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -124,7 +125,7 @@ class GraphFixesIT extends AbstractGraphIT {
     /** SCHEMA §11: config PATCH and vocabulary PUT cannot remove a custom type or predicate in use. */
     @Test
     void customVocabularyInUseCannotBeRemoved() {
-        brains.create(new NewBrain("fx-v", "v", null, null, BrainConfig.defaults().withVocabulary(recipes())));
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain("fx-v", "v", null, null, BrainConfig.defaults().withVocabulary(recipes())));
         BrainScope s = BrainScope.of("fx-v");
         BrainVocabulary v = brains.vocabulary(s);
         IngestionRecord i = ingestion(s, "tester");
@@ -135,7 +136,7 @@ class GraphFixesIT extends AbstractGraphIT {
         String claimId = r.outcomes(Outcome.CLAIM_CREATED).get(0).claimId();
 
         // an explicit core vocabulary removes the custom one (an absent vocabulary keeps it, ADR-029)
-        assertThatThrownBy(() -> brains.update("fx-v", null, new BrainUpdate(null, null,
+        assertThatThrownBy(() -> brains.update(Actor.LOCAL_ADMIN, "fx-v", null, new BrainUpdate(null, null,
                 BrainConfig.defaults().withVocabulary(VocabularyConfig.core()))))
                 .isInstanceOf(GraphSpindleException.class)
                 .satisfies(e -> {
@@ -146,15 +147,15 @@ class GraphFixesIT extends AbstractGraphIT {
         // keeping the type but removing the predicate is refused too
         VocabularyConfig typeOnly = new VocabularyConfig(null, null, List.of(), Map.of(), recipes().customEntityTypes(),
                 List.of(), List.of());
-        assertThatThrownBy(() -> brains.updateVocabulary("fx-v", null, typeOnly))
+        assertThatThrownBy(() -> brains.updateVocabulary(Actor.LOCAL_ADMIN, "fx-v", null, typeOnly))
                 .extracting(e -> ((GraphSpindleException) e).code()).isEqualTo(ErrorCode.CONFLICT_STATE);
-        assertThat(brains.get("fx-v").configVersion()).isEqualTo(1);
+        assertThat(brains.get(Actor.LOCAL_ADMIN, "fx-v").configVersion()).isEqualTo(1);
 
         // once nothing uses the predicate it can be removed; the type is still used by the entity
         graph.apply(s, new ApplyRequest(ingestion(s, "tester").id(), "tester", Origin.LLM, List.of(),
                 plan(new RetractClaimCommand(0, claimId, "wrong", "evidence")), v, null, true, null));
-        assertThat(brains.updateVocabulary("fx-v", null, typeOnly).brain().configVersion()).isEqualTo(2);
-        assertThatThrownBy(() -> brains.updateVocabulary("fx-v", null, VocabularyConfig.core()))
+        assertThat(brains.updateVocabulary(Actor.LOCAL_ADMIN, "fx-v", null, typeOnly).brain().configVersion()).isEqualTo(2);
+        assertThatThrownBy(() -> brains.updateVocabulary(Actor.LOCAL_ADMIN, "fx-v", null, VocabularyConfig.core()))
                 .extracting(e -> ((GraphSpindleException) e).code()).isEqualTo(ErrorCode.CONFLICT_STATE);
     }
 

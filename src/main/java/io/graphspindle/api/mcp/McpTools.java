@@ -21,7 +21,12 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import io.modelcontextprotocol.spec.McpSchema;
 import java.util.List;
+import java.util.Map;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
@@ -30,8 +35,8 @@ import org.springframework.stereotype.Component;
  * The MCP tools (ARCHITECTURE §11, ADR-032). Each tool maps its arguments and makes exactly one call
  * to the application service its REST endpoint calls, with the same {@code Actor} and an explicit
  * {@code brainId} validated by the service, so REST and MCP enforce the same brain boundary and
- * authorization. No logic lives here. Admin operations (brain create/update/delete, vocabulary edits)
- * are REST-only.
+ * authorization. No logic lives here. Admin operations (brain create/update/delete, vocabulary edits,
+ * API keys) are REST-only.
  */
 @Component
 public class McpTools {
@@ -50,10 +55,13 @@ public class McpTools {
     private final KnowledgeService knowledge;
     private final ConflictService conflicts;
     private final McpResults results;
+    /** The application mapper: strict like REST (unknown properties fail). */
+    private final JsonMapper json;
 
     public McpTools(BrainService brains, VocabularyTypeService types, IngestionService ingestions,
             SearchService search, EntityReadService reads, NodeViewService nodes, NeighborhoodService neighborhood,
-            KnowledgeService knowledge, ConflictService conflicts, McpResults results) {
+            KnowledgeService knowledge, ConflictService conflicts, McpResults results, JsonMapper json) {
+        this.json = json;
         this.brains = brains;
         this.types = types;
         this.ingestions = ingestions;
@@ -71,20 +79,20 @@ public class McpTools {
     @McpTool(name = "list_brains", description = "List the brains (independent knowledge graphs) you can use."
             + NO_CYPHER, annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))
     public CallToolResult listBrains(McpTransportContext ctx) {
-        return results.call(() -> brains.list().stream().map(BrainResponse::of).toList());
+        return results.call(() -> brains.list(McpCaller.actor(ctx)).stream().map(BrainResponse::of).toList());
     }
 
     @McpTool(name = "get_brain", description = "One brain with its configuration.",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))
     public CallToolResult getBrain(McpTransportContext ctx, @McpToolParam(description = BRAIN) String brainId) {
-        return results.call(() -> BrainResponse.of(brains.get(brainId)));
+        return results.call(() -> BrainResponse.of(brains.get(McpCaller.actor(ctx), brainId)));
     }
 
     @McpTool(name = "list_node_types", description = "The kinds of things (entity types) this brain knows, with"
             + " descriptions and properties. Read-only; useful to understand search results." + NO_CYPHER,
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))
     public CallToolResult listNodeTypes(McpTransportContext ctx, @McpToolParam(description = BRAIN) String brainId) {
-        return results.call(() -> types.nodeTypes(brainId).value());
+        return results.call(() -> types.nodeTypes(McpCaller.actor(ctx), brainId).value());
     }
 
     @McpTool(name = "list_relationship_types", description = "The relationships (predicates) this brain knows,"
@@ -92,7 +100,7 @@ public class McpTools {
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))
     public CallToolResult listRelationshipTypes(McpTransportContext ctx,
             @McpToolParam(description = BRAIN) String brainId) {
-        return results.call(() -> types.relationshipTypes(brainId).value());
+        return results.call(() -> types.relationshipTypes(McpCaller.actor(ctx), brainId).value());
     }
 
     // ------------------------------------------------------------------ ingestion
@@ -118,10 +126,30 @@ public class McpTools {
                     + " brain owner") IngestRequest.Speaker speaker,
             @McpToolParam(required = false, description = "When it happened, ISO-8601 instant") String occurredAt,
             @McpToolParam(required = false, description = "true returns the plan without storing anything")
-            Boolean dryRun) {
-        return results.call(() -> ingestions.ingest(McpCaller.actor(ctx), brainId, new IngestRequest(content,
-                contentType, requestId, sources, speaker, instant("occurredAt", occurredAt)),
-                Boolean.TRUE.equals(dryRun), false));
+            Boolean dryRun, McpSchema.CallToolRequest call) {
+        return results.call(() -> {
+            // sources and speaker are re-read strictly from the raw arguments, so a misspelled field is
+            // VALIDATION_FAILED like REST instead of being dropped by the lenient tool-argument binding
+            Map<String, Object> raw = call == null || call.arguments() == null ? Map.of() : call.arguments();
+            List<IngestRequest.Source> strictSources = strict(raw.get("sources"),
+                    new TypeReference<List<IngestRequest.Source>>() { }, "sources", sources);
+            IngestRequest.Speaker strictSpeaker = strict(raw.get("speaker"),
+                    new TypeReference<IngestRequest.Speaker>() { }, "speaker", speaker);
+            return ingestions.ingest(McpCaller.actor(ctx), brainId, new IngestRequest(content, contentType,
+                    requestId, strictSources, strictSpeaker, instant("occurredAt", occurredAt)),
+                    Boolean.TRUE.equals(dryRun), false);
+        });
+    }
+
+    private <T> T strict(Object raw, TypeReference<T> type, String name, T bound) {
+        if (raw == null) {
+            return bound;
+        }
+        try {
+            return json.convertValue(raw, type);
+        } catch (IllegalArgumentException | JacksonException e) {
+            throw GraphSpindleException.validation(name + " is malformed or has unknown fields");
+        }
     }
 
     @McpTool(name = "get_ingestion", description = "Status and result of an earlier remember call, by ingestionId"

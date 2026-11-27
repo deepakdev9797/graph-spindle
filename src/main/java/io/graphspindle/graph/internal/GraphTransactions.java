@@ -46,10 +46,17 @@ public class GraphTransactions {
         }
     }
 
-    /** Unscoped access, only for schema management and the allowlisted brain listing. */
+    /** Unscoped access, only for schema management and the allowlisted brain listing and API key lookups. */
     public <T> T readUnscoped(Function<TransactionContext, T> work) {
         try (Session session = driver.session()) {
             return session.executeRead(work::apply);
+        }
+    }
+
+    /** Unscoped write, only for the allowlisted global {@code ApiKey} statements (ADR-033). */
+    public <T> T writeUnscoped(Function<TransactionContext, T> work) {
+        try (Session session = driver.session()) {
+            return session.executeWrite(work::apply);
         }
     }
 

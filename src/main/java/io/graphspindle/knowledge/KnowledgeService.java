@@ -3,6 +3,7 @@ package io.graphspindle.knowledge;
 import io.graphspindle.brain.BrainConfig;
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.ClaimKind;
 import io.graphspindle.common.ErrorCode;
@@ -96,7 +97,7 @@ public class KnowledgeService {
 
     public Page<EntityInfo> listEntities(Actor actor, String brainId, String type, String status, String cursor,
             Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         if (type != null && !type.matches("[A-Za-z][A-Za-z0-9]{0,39}")) {
             throw GraphSpindleException.validation("invalid type");
         }
@@ -111,7 +112,7 @@ public class KnowledgeService {
 
     /** The entity itself (not followed through MERGED_INTO); 404 when it is not in this brain. */
     public EntityInfo getEntity(Actor actor, String brainId, String entityId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         return KnowledgeViews.entity(entity(scope, entityId));
     }
 
@@ -121,7 +122,7 @@ public class KnowledgeService {
      * which creates a separate entity with key suffix {@code ~2}, {@code ~3} ... (SCHEMA §7.3).
      */
     public EntityWrite createEntity(Actor actor, String brainId, NewEntity request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         BrainVocabulary vocabulary = brains.vocabulary(scope);
         if (request == null || request.type() == null || !vocabulary.isEnabledType(request.type())) {
             throw GraphSpindleException.validation("type must be an entity type enabled in the brain vocabulary");
@@ -169,7 +170,7 @@ public class KnowledgeService {
      * old name as an alias; renaming onto another entity's name is {@code CONFLICT_STATE} (merge instead).
      */
     public EntityInfo updateEntity(Actor actor, String brainId, String entityId, EntityChanges changes) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         EntityView e = entity(scope, entityId);
         if (changes == null || changes.name() == null && changes.description() == null
                 && changes.descriptionLocked() == null) {
@@ -192,12 +193,12 @@ public class KnowledgeService {
 
     /** Soft delete (ARCHIVED): hidden from search and neighbourhoods, still readable by id. */
     public EntityInfo archiveEntity(Actor actor, String brainId, String entityId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         return KnowledgeViews.entity(store.archiveEntity(scope, entity(scope, entityId).id(), actor.id()));
     }
 
     public EntityWrite addAlias(Actor actor, String brainId, String entityId, NewAlias request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         EntityView e = resolved(scope, entityId);
         String display = name(request == null ? null : request.alias());
         PlanCommand add = new PlanCommand.AddAliasCommand(0, new ResolvedEntity.Existing(e.id(), e.type(), null),
@@ -208,7 +209,7 @@ public class KnowledgeService {
     }
 
     public List<AliasInfo> aliases(Actor actor, String brainId, String entityId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         return aliases(scope, entity(scope, entityId).id());
     }
 
@@ -218,7 +219,7 @@ public class KnowledgeService {
 
     /** Merges {@code loserId} into {@code survivorId} (SCHEMA §9.5); the loser redirects to the survivor. */
     public MergeResult mergeEntities(Actor actor, String brainId, MergeRequest request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         if (request == null || request.survivorId() == null || request.loserId() == null) {
             throw GraphSpindleException.validation("survivorId and loserId are required");
         }
@@ -242,7 +243,7 @@ public class KnowledgeService {
     /** Keyset page of claims; every filter is optional ({@code status} null means any status). */
     public Page<ClaimInfo> listClaims(Actor actor, String brainId, String subjectId, String objectId,
             String predicate, String status, String cursor, Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         if (predicate != null && !predicate.matches("[A-Za-z][A-Za-z0-9_]{0,39}")) {
             throw GraphSpindleException.validation("invalid predicate");
         }
@@ -261,7 +262,7 @@ public class KnowledgeService {
      * stored DISPUTED with a CONTRADICTION conflict, otherwise the claim is ACTIVE and projected.
      */
     public ClaimWrite assertClaim(Actor actor, String brainId, NewClaim request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         BrainVocabulary vocabulary = brains.vocabulary(scope);
         if (request == null || request.subjectId() == null) {
             throw GraphSpindleException.validation("subjectId is required");
@@ -274,7 +275,7 @@ public class KnowledgeService {
     }
 
     public ClaimDetail getClaim(Actor actor, String brainId, String claimId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         GraphReader.ClaimProvenance p = Paging.plausibleId(claimId) ? reader.provenance(scope, claimId, 20).orElse(null)
                 : null;
         if (p == null) {
@@ -287,7 +288,7 @@ public class KnowledgeService {
 
     /** The SUPERSEDES chain the claim belongs to, oldest first (SCHEMA §10.3 history). */
     public List<HistoryEntry> claimHistory(Actor actor, String brainId, String claimId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         List<GraphReader.ClaimLinked> chain = Paging.plausibleId(claimId) ? reader.claimHistory(scope, claimId)
                 : List.of();
         if (chain.isEmpty()) {
@@ -309,7 +310,7 @@ public class KnowledgeService {
      * the replacement is DISPUTED with a conflict (ADR-022).
      */
     public ClaimWrite supersedeClaim(Actor actor, String brainId, String claimId, Supersession request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         BrainVocabulary vocabulary = brains.vocabulary(scope);
         ClaimView target = claim(scope, claimId);
         if (request == null || request.replacement() == null) {
@@ -329,7 +330,7 @@ public class KnowledgeService {
 
     /** Retracts an ACTIVE or DISPUTED claim (keys and projection removed); history is kept. */
     public ClaimWrite retractClaim(Actor actor, String brainId, String claimId, Retraction request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         ClaimView target = claim(scope, claimId);
         String reason = requiredText("reason", request == null ? null : request.reason(), MAX_REASON);
         applyManual(actor, scope, brains.vocabulary(scope),
@@ -340,14 +341,14 @@ public class KnowledgeService {
     // ------------------------------------------------------------------ sources
 
     public Page<SourceInfo> listSources(Actor actor, String brainId, String cursor, Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         var page = reader.listSources(scope, Paging.cursor(cursor),
                 Paging.limit(limit, Paging.DEFAULT_LIMIT, Paging.MAX_LIMIT));
         return new Page<>(page.items().stream().map(KnowledgeViews::source).toList(), page.next());
     }
 
     public SourceDetail getSource(Actor actor, String brainId, String sourceId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         var use = Paging.plausibleId(sourceId) ? reader.source(scope, sourceId, 100).orElse(null) : null;
         if (use == null) {
             throw GraphSpindleException.notFound("source", sourceId);

@@ -208,6 +208,8 @@ The work is a series of vertical slices. Every milestone ends with a green `./mv
 - `RateLimitIT`: the 31st ingest within a minute returns 429.
 - `LogRedactionTest`: captured logs contain no content, key, or `Authorization` header.
 
+**Status:** done (ADR-033, plus the QA M8 hardening of ADR-034). `AuthIT` (matrix over all 54 REST endpoints and 19 brain-scoped MCP tools: no/wrong/revoked/expired key 401, foreign brain 404 `BRAIN_NOT_FOUND` identical to a missing brain, READ cannot write, WRITE cannot administer, brain ADMIN manages only its keys, multi-brain keys, grants deleted with the brain), `ServiceGuardTest` (ArchUnit call graph), `ApiKeyStorageIT`, `StartupSafetyTest`, `RateLimitIT`, `LogRedactionIT` (an IT because it needs the server), `BrainAccessGuardTest`, `ApiKeyTokensTest`, `QaM8McpIT`, `QaM8BudgetIT`, `QaM8CueProximityTest`. Every existing IT authenticates with the test admin key (`support.TestKeys`). Swagger is open on loopback and needs a key otherwise.
+
 ## M10: Provider configurations, Compose and documentation
 
 **Scope**
@@ -223,6 +225,8 @@ The work is a series of vertical slices. Every milestone ends with a green `./mv
 - `NoProviderIT`: provider `none` starts, and ingest returns 503.
 - `ConfigDocsTest`: every `graphspindle.*` property in `application.yml` is documented in README or `docs/CONFIGURATION.md`.
 - Manual (reported, not automated): an ingest of the README example against a real local Ollama model, with results recorded in the completion report including the model name.
+
+**Status:** done (ADR-035), except the manual Ollama run, which was not repeated for M10. `ProviderSelectionTest` (each provider's context starts without network and `system/info` reports provider, host, data transfer and structured-output mode), `ProviderProfilesTest`, `SystemInfoServiceTest`, `SystemInfoIT`, `ConfigDocsTest` (README, `.env.example`, `compose.yaml` parse and loopback ports). `NoProviderIT` is covered by `ProviderSelectionTest.None` and `LlmUnavailableIT` (503). `compose.yaml` and `Dockerfile` are untested (no Docker).
 
 ## After the MVP (not planned in detail)
 

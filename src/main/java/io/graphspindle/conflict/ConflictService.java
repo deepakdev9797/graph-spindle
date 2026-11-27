@@ -2,6 +2,7 @@ package io.graphspindle.conflict;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.common.Normalizer;
@@ -81,7 +82,7 @@ public class ConflictService {
 
     public Page<ConflictInfo> list(Actor actor, String brainId, String status, String kind, String cursor,
             Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         String st = upper(status, STATUSES, "status");
         String k = upper(kind, KINDS, "kind");
         Page<ConflictView> page = reader.listConflicts(scope, st, k, Paging.cursor(cursor),
@@ -90,12 +91,12 @@ public class ConflictService {
     }
 
     public ConflictInfo get(Actor actor, String brainId, String conflictId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         return info(scope, List.of(find(scope, conflictId))).get(0);
     }
 
     public ResolveResult resolve(Actor actor, String brainId, String conflictId, Resolve request) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
         if (request == null || request.resolution() == null) {
             throw GraphSpindleException.validation("resolution is required");
         }

@@ -242,7 +242,9 @@ public class IngestionPipeline {
 
         // 4. validate
         List<String> summaries = job.sources().stream().map(SourceInput::summary).toList();
-        ValidationContext ctx = new ValidationContext(job.scope().brainId(), vocab, candidates.set(), job.content(),
+        // only the candidates the model was shown are addressable by handle (ADR-034)
+        ValidationContext ctx = new ValidationContext(job.scope().brainId(), vocab,
+                candidates.set().addressableOnly(reconcilePrompt.shownHandles()), job.content(),
                 summaries, limits, job.config().validationPolicy(), new SecretScanner());
         ValidatedPlan plan = validator.validate(parsed, ctx);
         // the engine flags near-duplicate new entities itself (SCHEMA §10.5, ADR-030)

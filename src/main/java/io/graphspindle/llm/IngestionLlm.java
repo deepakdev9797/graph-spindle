@@ -23,5 +23,10 @@ public interface IngestionLlm {
      *
      * @throws LlmException on unavailability, timeout or a provider failure
      */
+    /** How the JSON answer is requested ({@code AUTO:PROMPT}, {@code PROVIDER_SCHEMA} ...), for system info. */
+    default String structuredOutputMode() {
+        return null;
+    }
+
     LlmReply complete(LlmRequest request);
 }

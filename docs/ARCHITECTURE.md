@@ -209,19 +209,19 @@ Prompts live in `src/main/resources/prompts/*.st` as versioned files. Changing a
 ## 8. Security
 
 **Authentication**
-- `Authorization: Bearer gsk_<keyId>_<secret>`, where the secret is 32 random bytes in base64url.
+- `Authorization: Bearer gsk_<keyId>_<secret>` or `X-API-Key: gsk_<keyId>_<secret>`, where the secret is 32 random bytes in base64url (ADR-033).
 - The server stores `sha256(secret)` and compares it in constant time.
-- Admin bootstrap: `GRAPHSPINDLE_ADMIN_KEY`, read from the environment and never logged.
+- Admin bootstrap: `GRAPHSPINDLE_ADMIN_API_KEY` (at least 32 characters), read from the environment; only its hash is kept and it is never logged.
 - With no admin key configured and a non-loopback bind address, startup fails.
 - `graphspindle.security.enabled=false` is allowed **only** when the bind address is loopback. It logs a warning and is meant for local development.
 
 **Authorization**
-- Scopes are `BRAIN_READ`, `BRAIN_WRITE` (manual mutations, conflict resolution), `INGEST`, `BRAIN_ADMIN` (config, vocabulary, API keys of that brain, delete), plus the global `ADMIN` (create brains, global keys).
-- `BrainAccessGuard.require(principal, brainId, scope)` is called at the start of every service method that takes a brain. It is called in the service, not the controller, so that REST and MCP share it.
+- Per-brain permissions `READ` < `WRITE` (ingestion, manual mutations, conflict resolution) < `ADMIN` (config, vocabulary, API keys of that brain, delete), stored as `:ApiKeyGrant` nodes; the global admin is the bootstrap key (create brains, all keys). ADR-033 supersedes the earlier five-scope list.
+- `BrainAccessGuard.require(actor, brainId, permission)` is called at the start of every service method that takes a brain (`ServiceGuardTest` enforces it). No grant: 404 `BRAIN_NOT_FOUND` (like a missing brain); too low a permission: 403. It is called in the service, not the controller, so that REST and MCP share it.
 - `brainId` always comes from the authenticated request path or tool argument. It never comes from content or LLM output.
 
 **MCP**
-- Same filter chain on the MCP endpoint path. **VERIFY** the Spring AI MCP webmvc endpoint paths and properties for the Streamable HTTP and SSE transports.
+- Same filter chain on `/mcp` (Streamable HTTP, verified). Host/Origin allowlist on REST and MCP against DNS rebinding; MCP sessions idle out after 30 min (ADR-034).
 - Each tool takes `brainId` as an argument and calls the guard. STDIO transport is not offered in the MVP, because it would bypass HTTP authentication.
 
 **Prompt injection**

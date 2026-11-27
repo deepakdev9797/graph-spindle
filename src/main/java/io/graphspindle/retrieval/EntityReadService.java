@@ -3,6 +3,7 @@ package io.graphspindle.retrieval;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.GraphSpindleException;
 import io.graphspindle.knowledge.KnowledgeModel.AliasInfo;
@@ -98,7 +99,7 @@ public class EntityReadService {
             EntityContext c = context.context(actor, brainId, n.id(), maxClaims);
             return of(n, c.entity(), c.claims(), c.disputed(), c.openConflictIds(), c.describedBy(), c.text());
         }
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         List<ContextClaim> believed = views.claims(scope, nodes.claimsAsOf(scope, n.id(), asOf)).stream()
                 .map(c -> new ContextClaim(c, List.of())).toList();
         return of(n, null, believed, null, null, null, null);

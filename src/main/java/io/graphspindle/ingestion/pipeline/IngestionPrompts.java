@@ -129,7 +129,12 @@ public final class IngestionPrompts {
     }
 
     /** A rendered prompt: id, the two messages, and the nonce its data blocks use. */
-    public record RenderedPrompt(String promptId, String system, String user, String nonce) {
+    /** @param shownHandles candidate handles shown in the prompt (reconcile), or null when none apply */
+    public record RenderedPrompt(String promptId, String system, String user, String nonce, Set<String> shownHandles) {
+
+        public RenderedPrompt(String promptId, String system, String user, String nonce) {
+            this(promptId, system, user, nonce, null);
+        }
     }
 
     // ------------------------------------------------------------------ stages
@@ -149,7 +154,8 @@ public final class IngestionPrompts {
     }
 
     public RenderedPrompt reconcile(Input in) {
-        String candidates = candidatesText(in.entities(), in.claims());
+        CandidatesBlock block = candidatesBlock(in.entities(), in.claims());
+        String candidates = block.text();
         String extraction = boundedExtraction(in.extraction());
         DataBlocks blocks = blocksFor(in, List.of(candidates, extraction));
         String system = templates.get(RECONCILE + ".system").render(Map.of(
@@ -163,7 +169,7 @@ public final class IngestionPrompts {
                 "candidates", blocks.wrap("candidates", candidates),
                 "extraction", blocks.wrap("extraction", extraction),
                 "content", blocks.wrap("content", in.content())));
-        return new RenderedPrompt(RECONCILE, system, user, blocks.nonce());
+        return new RenderedPrompt(RECONCILE, system, user, blocks.nonce(), block.shown());
     }
 
     /**
@@ -301,9 +307,18 @@ public final class IngestionPrompts {
      * {@code P0} always stays.
      */
     String candidatesText(List<PromptEntity> entities, List<PromptClaim> claims) {
+        return candidatesBlock(entities, claims).text();
+    }
+
+    /** The candidates text and the handles it shows (only those can be referenced, ADR-034). */
+    record CandidatesBlock(String text, Set<String> shown) {
+    }
+
+    CandidatesBlock candidatesBlock(List<PromptEntity> entities, List<PromptClaim> claims) {
         if (entities.isEmpty() && claims.isEmpty()) {
-            return "(no existing candidates)\n";
+            return new CandidatesBlock("(no existing candidates)\n", Set.of());
         }
+        Set<String> shownHandles = new HashSet<>();
         Map<String, PromptEntity> byHandle = new LinkedHashMap<>();
         entities.forEach(e -> byHandle.put(e.handle(), e));
         long[] entityTokens = new long[entities.size()];
@@ -360,6 +375,7 @@ public final class IngestionPrompts {
         for (int i = 0; i < entities.size(); i++) {
             if (visible(entities.get(i), entityShown[i], needed)) {
                 sb.append(entityLines.get(i)).append('\n');
+                shownHandles.add(entities.get(i).handle());
             } else {
                 omitted++;
             }
@@ -367,6 +383,7 @@ public final class IngestionPrompts {
         for (int i = 0; i < claims.size(); i++) {
             if (claimShown[i]) {
                 sb.append(claimLines.get(i)).append('\n');
+                shownHandles.add(claims.get(i).handle());
             } else {
                 omitted++;
             }
@@ -374,7 +391,7 @@ public final class IngestionPrompts {
         if (omitted > 0) {
             sb.append("(").append(omitted).append(" lower-ranked candidates omitted for length)\n");
         }
-        return sb.toString();
+        return new CandidatesBlock(sb.toString(), Set.copyOf(shownHandles));
     }
 
     private static Set<String> neededContext(List<PromptClaim> claims, boolean[] claimShown) {

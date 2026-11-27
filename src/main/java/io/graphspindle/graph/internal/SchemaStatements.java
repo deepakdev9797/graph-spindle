@@ -38,7 +38,9 @@ public final class SchemaStatements {
             "CREATE INDEX claim_brain_predicate IF NOT EXISTS FOR (c:Claim) ON (c.brainId, c.predicate, c.status)",
             "CREATE INDEX ingestion_brain_hash IF NOT EXISTS FOR (i:Ingestion) ON (i.brainId, i.contentHash)",
             "CREATE INDEX ingestion_brain_time IF NOT EXISTS FOR (i:Ingestion) ON (i.brainId, i.receivedAt)",
-            "CREATE INDEX conflict_brain_status IF NOT EXISTS FOR (x:Conflict) ON (x.brainId, x.status)");
+            "CREATE INDEX conflict_brain_status IF NOT EXISTS FOR (x:Conflict) ON (x.brainId, x.status)",
+            "CREATE INDEX apikey_grant_key IF NOT EXISTS FOR (g:ApiKeyGrant) ON (g.keyId)",
+            "CREATE INDEX apikey_grant_brain IF NOT EXISTS FOR (g:ApiKeyGrant) ON (g.brainId, g.keyId)");
 
     /**
      * Fulltext indexes use the no-stop-words analyzer so names such as "The Who" or "It" stay searchable.

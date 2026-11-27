@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.brain.VocabularyTypeService;
 import io.graphspindle.brain.VocabularyTypeService.Versioned;
 import io.graphspindle.vocabulary.NodeType;
@@ -66,13 +67,13 @@ public class VocabularyTypeController {
     @GetMapping("/brains/{brainId}/node-types")
     @Operation(summary = "The brain's node types: core (enabled or not) and custom, with properties")
     public ResponseEntity<List<NodeType>> nodeTypes(@PathVariable String brainId) {
-        return ok(types.nodeTypes(brainId));
+        return ok(types.nodeTypes(CurrentActor.require(), brainId));
     }
 
     @GetMapping("/brains/{brainId}/node-types/{type}")
     @Operation(summary = "One node type of the brain")
     public ResponseEntity<NodeType> nodeType(@PathVariable String brainId, @PathVariable String type) {
-        return ok(types.nodeType(brainId, type));
+        return ok(types.nodeType(CurrentActor.require(), brainId, type));
     }
 
     @PostMapping("/brains/{brainId}/node-types")
@@ -80,7 +81,7 @@ public class VocabularyTypeController {
     public ResponseEntity<NodeType> createNodeType(@PathVariable String brainId,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody NodeType body) {
-        Versioned<NodeType> v = types.createNodeType(brainId, ETags.parseIfMatch(ifMatch), body);
+        Versioned<NodeType> v = types.createNodeType(CurrentActor.require(), brainId, ETags.parseIfMatch(ifMatch), body);
         return ResponseEntity.created(URI.create("/api/v1/brains/" + brainId + "/node-types/" + v.value().name()))
                 .eTag(ETags.of(v.configVersion())).body(v.value());
     }
@@ -91,14 +92,14 @@ public class VocabularyTypeController {
     public ResponseEntity<NodeType> updateNodeType(@PathVariable String brainId, @PathVariable String type,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody NodeType body) {
-        return ok(types.updateNodeType(brainId, type, ETags.parseIfMatch(ifMatch), body));
+        return ok(types.updateNodeType(CurrentActor.require(), brainId, type, ETags.parseIfMatch(ifMatch), body));
     }
 
     @DeleteMapping("/brains/{brainId}/node-types/{type}")
     @Operation(summary = "Delete a custom node type (409 while entities use it; core types cannot be deleted)")
     public ResponseEntity<Void> deleteNodeType(@PathVariable String brainId, @PathVariable String type,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
-        long version = types.deleteNodeType(brainId, type, ETags.parseIfMatch(ifMatch));
+        long version = types.deleteNodeType(CurrentActor.require(), brainId, type, ETags.parseIfMatch(ifMatch));
         return ResponseEntity.noContent().eTag(ETags.of(version)).build();
     }
 
@@ -107,14 +108,14 @@ public class VocabularyTypeController {
     @GetMapping("/brains/{brainId}/relationship-types")
     @Operation(summary = "The brain's relationship types: core (enabled or not) and custom")
     public ResponseEntity<List<RelationshipType>> relationshipTypes(@PathVariable String brainId) {
-        return ok(types.relationshipTypes(brainId));
+        return ok(types.relationshipTypes(CurrentActor.require(), brainId));
     }
 
     @GetMapping("/brains/{brainId}/relationship-types/{name}")
     @Operation(summary = "One relationship type of the brain")
     public ResponseEntity<RelationshipType> relationshipType(@PathVariable String brainId,
             @PathVariable String name) {
-        return ok(types.relationshipType(brainId, name));
+        return ok(types.relationshipType(CurrentActor.require(), brainId, name));
     }
 
     @PostMapping("/brains/{brainId}/relationship-types")
@@ -122,7 +123,7 @@ public class VocabularyTypeController {
     public ResponseEntity<RelationshipType> createRelationshipType(@PathVariable String brainId,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody RelationshipType body) {
-        Versioned<RelationshipType> v = types.createRelationshipType(brainId, ETags.parseIfMatch(ifMatch), body);
+        Versioned<RelationshipType> v = types.createRelationshipType(CurrentActor.require(), brainId, ETags.parseIfMatch(ifMatch), body);
         return ResponseEntity.created(URI.create("/api/v1/brains/" + brainId + "/relationship-types/"
                 + v.value().name())).eTag(ETags.of(v.configVersion())).body(v.value());
     }
@@ -133,14 +134,14 @@ public class VocabularyTypeController {
             @PathVariable String name,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody RelationshipType body) {
-        return ok(types.updateRelationshipType(brainId, name, ETags.parseIfMatch(ifMatch), body));
+        return ok(types.updateRelationshipType(CurrentActor.require(), brainId, name, ETags.parseIfMatch(ifMatch), body));
     }
 
     @DeleteMapping("/brains/{brainId}/relationship-types/{name}")
     @Operation(summary = "Delete a custom relationship type (409 while claims use it)")
     public ResponseEntity<Void> deleteRelationshipType(@PathVariable String brainId, @PathVariable String name,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
-        long version = types.deleteRelationshipType(brainId, name, ETags.parseIfMatch(ifMatch));
+        long version = types.deleteRelationshipType(CurrentActor.require(), brainId, name, ETags.parseIfMatch(ifMatch));
         return ResponseEntity.noContent().eTag(ETags.of(version)).build();
     }
 

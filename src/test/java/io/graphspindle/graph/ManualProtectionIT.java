@@ -1,5 +1,6 @@
 package io.graphspindle.graph;
 
+import io.graphspindle.common.Actor;
 import static io.graphspindle.support.KnowledgeApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -101,7 +102,7 @@ class ManualProtectionIT extends AbstractGraphIT {
 
     @Test
     void userCorrectionsApplyEvenUnderAlwaysFlag() {
-        brains.create(new NewBrain("strict", "strict", null, null, new BrainConfig(ConflictPolicy.ALWAYS_FLAG, null,
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain("strict", "strict", null, null, new BrainConfig(ConflictPolicy.ALWAYS_FLAG, null,
                 null, null, null, null, null, null, null)));
         String p = k.entity("strict", "Project", "GraphSpindle");
         String a = k.entity("strict", "Standard", "Apache License 2.0");

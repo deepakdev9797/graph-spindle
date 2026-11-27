@@ -26,7 +26,7 @@ public final class CoreVocabulary {
 
     /** Node labels used by the engine (SCHEMA §5.2) plus additional reserved names. */
     public static final Set<String> SYSTEM_LABELS =
-            Set.of("Entity", "Alias", "Claim", "Ingestion", "SourceRef", "Conflict", "Brain", "ApiKey");
+            Set.of("Entity", "Alias", "Claim", "Ingestion", "SourceRef", "Conflict", "Brain", "ApiKey", "ApiKeyGrant");
 
     public static final Set<String> RESERVED_LABELS;
 

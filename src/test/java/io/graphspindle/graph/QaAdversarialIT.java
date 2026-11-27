@@ -1,5 +1,6 @@
 package io.graphspindle.graph;
 
+import io.graphspindle.common.Actor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -94,13 +95,13 @@ class QaAdversarialIT extends AbstractGraphIT {
     /** SCHEMA §11: removing a custom predicate is rejected (409) while ACTIVE claims use it. */
     @Test
     void f1_removingAnInUseCustomAttributeIsRejected() {
-        brains.create(new NewBrain("qa-v1", "v", null, null, BrainConfig.defaults().withVocabulary(withFlavor())));
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain("qa-v1", "v", null, null, BrainConfig.defaults().withVocabulary(withFlavor())));
         BrainScope s = BrainScope.of("qa-v1");
         BrainVocabulary v = brains.vocabulary(s);
         String t = applyWith(s, v, create(0, "t", "Technology", "Neo4j")).refs().get("t");
         applyWith(s, v, claim(0, attr(v, existing(t, "Technology"), "flavor", "graphy")));
 
-        assertThatThrownBy(() -> brains.updateVocabulary("qa-v1", null, VocabularyConfig.core()))
+        assertThatThrownBy(() -> brains.updateVocabulary(Actor.LOCAL_ADMIN, "qa-v1", null, VocabularyConfig.core()))
                 .isInstanceOf(GraphSpindleException.class)
                 .extracting(e -> ((GraphSpindleException) e).code()).isEqualTo(ErrorCode.CONFLICT_STATE);
     }
@@ -108,7 +109,7 @@ class QaAdversarialIT extends AbstractGraphIT {
     /** Consequence of F1: the ACTIVE claim can no longer be retracted; every such ingestion fails as a whole. */
     @Test
     void f1_claimOfARemovedAttributeCanStillBeRetracted() {
-        brains.create(new NewBrain("qa-v2", "v", null, null, BrainConfig.defaults().withVocabulary(withFlavor())));
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain("qa-v2", "v", null, null, BrainConfig.defaults().withVocabulary(withFlavor())));
         BrainScope s = BrainScope.of("qa-v2");
         BrainVocabulary v = brains.vocabulary(s);
         String t = applyWith(s, v, create(0, "t", "Technology", "Neo4j")).refs().get("t");
@@ -249,7 +250,7 @@ class QaAdversarialIT extends AbstractGraphIT {
     /** updateVocabulary reads the config, then writes it back without a version check (If-Match omitted). */
     @Test
     void f4_vocabularyPutDoesNotRevertAConcurrentConfigPatch() {
-        brains.create(new NewBrain("qa-lu", "lu", null, null, null));
+        brains.create(Actor.LOCAL_ADMIN, new NewBrain("qa-lu", "lu", null, null, null));
         AtomicBoolean once = new AtomicBoolean(true);
         BrainService real = brains;
         BrainStore racingStore = new BrainStore(transactions) {
@@ -258,15 +259,15 @@ class QaAdversarialIT extends AbstractGraphIT {
                     String description, String configJson) {
                 if (once.getAndSet(false)) {
                     // another admin's PATCH lands between updateVocabulary's read and its write
-                    real.update("qa-lu", null, new BrainUpdate(null, null, new BrainConfig(ConflictPolicy.ALWAYS_FLAG,
+                    real.update(Actor.LOCAL_ADMIN, "qa-lu", null, new BrainUpdate(null, null, new BrainConfig(ConflictPolicy.ALWAYS_FLAG,
                             null, null, null, null, null, null, null, null)));
                 }
                 return super.update(scope, expectedVersion, name, setDescription, description, configJson);
             }
         };
         BrainService svc = new BrainService(racingStore, jsonMapper);
-        svc.updateVocabulary("qa-lu", null, withFlavor());
+        svc.updateVocabulary(Actor.LOCAL_ADMIN, "qa-lu", null, withFlavor());
 
-        assertThat(brains.get("qa-lu").config().conflictPolicy()).isEqualTo(ConflictPolicy.ALWAYS_FLAG);
+        assertThat(brains.get(Actor.LOCAL_ADMIN, "qa-lu").config().conflictPolicy()).isEqualTo(ConflictPolicy.ALWAYS_FLAG);
     }
 }

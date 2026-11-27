@@ -2,6 +2,7 @@ package io.graphspindle.retrieval;
 
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
@@ -51,7 +52,7 @@ public class SearchService {
     }
 
     public SearchResult search(Actor actor, String brainId, String query, List<String> types, Integer limit) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         int n = Paging.limit(limit, DEFAULT_LIMIT, MAX_LIMIT);
         if (query == null || query.isBlank()) {
             throw GraphSpindleException.validation("q is required");

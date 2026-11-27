@@ -7,15 +7,33 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Minimal JSON HTTP client for ITs: never throws on error statuses. */
+/**
+ * Minimal JSON HTTP client for ITs: never throws on error statuses. Sends the given API key in
+ * {@code X-API-Key} (none for {@link #ApiClient(String)}).
+ */
 public final class ApiClient {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final RestClient client;
+    private final String baseUrl;
 
+    /** An unauthenticated client. */
     public ApiClient(String baseUrl) {
-        this.client = RestClient.builder().baseUrl(baseUrl).defaultStatusHandler(s -> true, (req, res) -> { })
-                .build();
+        this(baseUrl, null);
+    }
+
+    public ApiClient(String baseUrl, String apiKey) {
+        this.baseUrl = baseUrl;
+        var builder = RestClient.builder().baseUrl(baseUrl).defaultStatusHandler(s -> true, (req, res) -> { });
+        if (apiKey != null) {
+            builder = builder.defaultHeader("X-API-Key", apiKey);
+        }
+        this.client = builder.build();
+    }
+
+    /** The same server with another key (null: none). */
+    public ApiClient withKey(String apiKey) {
+        return new ApiClient(baseUrl, apiKey);
     }
 
     public Response get(String path) {

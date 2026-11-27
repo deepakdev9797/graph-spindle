@@ -1,28 +1,26 @@
 package io.graphspindle.api.mcp;
 
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.BrainAccessGuard;
+import io.graphspindle.security.CurrentActor;
 import io.modelcontextprotocol.common.McpTransportContext;
 
 /**
- * Who calls an MCP tool (ADR-032). The transport's context extractor ({@link McpConfig}) copies the
- * principal that the HTTP security layer put on the request ({@link #PRINCIPAL_ATTRIBUTE}) into the
- * {@link McpTransportContext}; tools resolve their {@link Actor} from it, never from tool arguments.
- * Until authentication exists (M9) nothing sets the attribute and every call acts as
- * {@link Actor#LOCAL_ADMIN}, exactly like REST.
+ * Who calls an MCP tool (ADR-032, ADR-033). The transport's context extractor ({@link McpConfig})
+ * copies the {@link Actor} that the API key filter put on the HTTP request
+ * ({@link CurrentActor#REQUEST_ATTRIBUTE}) into the {@link McpTransportContext}; tools resolve it from
+ * there, never from tool arguments, and pass it to the same services as REST, which authorize it.
  */
 public final class McpCaller {
-
-    /** Request attribute (and transport-context key) holding the authenticated principal id. */
-    public static final String PRINCIPAL_ATTRIBUTE = "graphspindle.principal";
 
     private McpCaller() {
     }
 
+    /** @throws io.graphspindle.common.GraphSpindleException {@code UNAUTHENTICATED} without a principal */
     public static Actor actor(McpTransportContext context) {
-        Object principal = context == null ? null : context.get(PRINCIPAL_ATTRIBUTE);
-        if (principal instanceof String id && !id.isBlank()) {
-            return new Actor(id);
-        }
-        return Actor.LOCAL_ADMIN;
+        Object principal = context == null ? null : context.get(CurrentActor.REQUEST_ATTRIBUTE);
+        Actor actor = principal instanceof Actor a ? a : null;
+        BrainAccessGuard.requireAuthenticated(actor);
+        return actor;
     }
 }

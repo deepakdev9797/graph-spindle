@@ -124,8 +124,44 @@ public class SpringAiIngestionLlm implements IngestionLlm, DisposableBean {
                 ? "" : response.getResult().getOutput().getText();
         Usage u = response == null || response.getMetadata() == null ? null : response.getMetadata().getUsage();
         String reported = response == null || response.getMetadata() == null ? null : response.getMetadata().getModel();
+        Integer promptTokens = u == null ? null : u.getPromptTokens();
+        checkNotTruncated(providerName(m), promptTokens);
         return new LlmReply(text, reported == null || reported.isBlank() ? model() : reported,
                 u == null ? null : u.getPromptTokens(), u == null ? null : u.getCompletionTokens(), ms);
+    }
+
+    /**
+     * Ollama silently drops the head of a prompt longer than {@code num-ctx} (ADR-031): a reported
+     * {@code prompt_eval_count} at or above {@code contextTokens - maxOutputTokens} means the rules may
+     * have been cut, so the answer is not used (ADR-034).
+     */
+    void checkNotTruncated(String provider, Integer promptTokens) {
+        if ("ollama".equals(provider) && promptTokens != null
+                && promptTokens >= properties.contextTokens() - properties.maxOutputTokens()) {
+            throw new LlmException(LlmException.Kind.FAILED, "the prompt used " + promptTokens + " tokens, at or above"
+                    + " the input budget of " + (properties.contextTokens() - properties.maxOutputTokens())
+                    + " (graphspindle.llm.context-tokens minus max-output-tokens); it may have been truncated", null);
+        }
+    }
+
+    /** Whether the JSON schema goes out as the provider's structured-output format (ADR-035). */
+    boolean sendsSchema(String provider, boolean force) {
+        return switch (properties.structuredOutput()) {
+            case PROVIDER_SCHEMA -> true;
+            case PROMPT -> force;
+            case AUTO -> provider.startsWith("ollama");
+        };
+    }
+
+    @Override
+    public String structuredOutputMode() {
+        ChatModel m = chatModel();
+        if (m == null) {
+            return properties.structuredOutput().name();
+        }
+        return properties.structuredOutput() == LlmProperties.StructuredOutput.AUTO
+                ? (sendsSchema(providerName(m), false) ? "AUTO:PROVIDER_SCHEMA" : "AUTO:PROMPT")
+                : properties.structuredOutput().name();
     }
 
     ChatOptions options(ChatModel m, LlmRequest request) {
@@ -138,8 +174,7 @@ public class SpringAiIngestionLlm implements IngestionLlm, DisposableBean {
         if (b instanceof ToolCallingChatOptions.Builder<?> tb) {
             tb.toolCallbacks(List.of());
         }
-        boolean schema = request.jsonSchema() != null
-                && (request.forceSchema() || properties.structuredOutput() == LlmProperties.StructuredOutput.PROVIDER_SCHEMA);
+        boolean schema = request.jsonSchema() != null && sendsSchema(providerName(m), request.forceSchema());
         if (schema && b instanceof StructuredOutputChatOptions.Builder<?> sb) {
             sb.outputSchema(request.jsonSchema());
         }

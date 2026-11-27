@@ -1,6 +1,6 @@
 package io.graphspindle.api.rest;
 
-import io.graphspindle.common.Actor;
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.common.Page;
 import io.graphspindle.knowledge.KnowledgeModel.AliasInfo;
 import io.graphspindle.knowledge.KnowledgeModel.ClaimDetail;
@@ -47,23 +47,18 @@ public class KnowledgeController {
         this.knowledge = knowledge;
     }
 
-    /** Until authentication exists (M9) every request acts as the local admin. */
-    static Actor actor() {
-        return Actor.LOCAL_ADMIN;
-    }
-
     @GetMapping("/entities")
     @Operation(summary = "List entities (keyset pagination by cursor)")
     public Page<EntityInfo> listEntities(@PathVariable String brainId, @RequestParam(required = false) String type,
             @RequestParam(required = false) String status, @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return knowledge.listEntities(actor(), brainId, type, status, cursor, limit);
+        return knowledge.listEntities(CurrentActor.require(), brainId, type, status, cursor, limit);
     }
 
     @PostMapping("/entities")
     @Operation(summary = "Create a MANUAL entity (201), or return the existing one with the same key (200)")
     public ResponseEntity<EntityWrite> createEntity(@PathVariable String brainId, @RequestBody NewEntity request) {
-        EntityWrite w = knowledge.createEntity(actor(), brainId, request);
+        EntityWrite w = knowledge.createEntity(CurrentActor.require(), brainId, request);
         return w.created() ? ResponseEntity.created(URI.create("/api/v1/brains/" + brainId + "/entities/"
                 + w.entity().id())).body(w) : ResponseEntity.ok(w);
     }
@@ -72,32 +67,32 @@ public class KnowledgeController {
     @Operation(summary = "Edit name, description (locks it against the LLM) or the description lock")
     public EntityInfo updateEntity(@PathVariable String brainId, @PathVariable String entityId,
             @RequestBody EntityChanges changes) {
-        return knowledge.updateEntity(actor(), brainId, entityId, changes);
+        return knowledge.updateEntity(CurrentActor.require(), brainId, entityId, changes);
     }
 
     @DeleteMapping("/entities/{entityId}")
     @Operation(summary = "Archive an entity (soft delete)")
     public EntityInfo archiveEntity(@PathVariable String brainId, @PathVariable String entityId) {
-        return knowledge.archiveEntity(actor(), brainId, entityId);
+        return knowledge.archiveEntity(CurrentActor.require(), brainId, entityId);
     }
 
     @GetMapping("/entities/{entityId}/aliases")
     @Operation(summary = "Aliases of an entity")
     public List<AliasInfo> aliases(@PathVariable String brainId, @PathVariable String entityId) {
-        return knowledge.aliases(actor(), brainId, entityId);
+        return knowledge.aliases(CurrentActor.require(), brainId, entityId);
     }
 
     @PostMapping("/entities/{entityId}/aliases")
     @Operation(summary = "Add an alias (MANUAL)")
     public EntityWrite addAlias(@PathVariable String brainId, @PathVariable String entityId,
             @RequestBody NewAlias request) {
-        return knowledge.addAlias(actor(), brainId, entityId, request);
+        return knowledge.addAlias(CurrentActor.require(), brainId, entityId, request);
     }
 
     @PostMapping("/entities/merge")
     @Operation(summary = "Merge loserId into survivorId (claims re-pointed, aliases moved, loser redirects)")
     public MergeResult merge(@PathVariable String brainId, @RequestBody MergeRequest request) {
-        return knowledge.mergeEntities(actor(), brainId, request);
+        return knowledge.mergeEntities(CurrentActor.require(), brainId, request);
     }
 
     @GetMapping("/claims")
@@ -106,13 +101,13 @@ public class KnowledgeController {
             @RequestParam(required = false) String objectId, @RequestParam(required = false) String predicate,
             @RequestParam(required = false) String status, @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return knowledge.listClaims(actor(), brainId, subjectId, objectId, predicate, status, cursor, limit);
+        return knowledge.listClaims(CurrentActor.require(), brainId, subjectId, objectId, predicate, status, cursor, limit);
     }
 
     @PostMapping("/claims")
     @Operation(summary = "Assert a MANUAL claim (201 when a new claim was created)")
     public ResponseEntity<ClaimWrite> assertClaim(@PathVariable String brainId, @RequestBody NewClaim request) {
-        ClaimWrite w = knowledge.assertClaim(actor(), brainId, request);
+        ClaimWrite w = knowledge.assertClaim(CurrentActor.require(), brainId, request);
         return "CREATED".equals(w.outcome()) || "DISPUTED".equals(w.outcome())
                 ? ResponseEntity.created(URI.create("/api/v1/brains/" + brainId + "/claims/" + w.claim().id())).body(w)
                 : ResponseEntity.ok(w);
@@ -121,39 +116,39 @@ public class KnowledgeController {
     @GetMapping("/claims/{claimId}")
     @Operation(summary = "A claim with its provenance (evidence, sources, supersession links, conflicts)")
     public ClaimDetail getClaim(@PathVariable String brainId, @PathVariable String claimId) {
-        return knowledge.getClaim(actor(), brainId, claimId);
+        return knowledge.getClaim(CurrentActor.require(), brainId, claimId);
     }
 
     @GetMapping("/claims/{claimId}/history")
     @Operation(summary = "The SUPERSEDES chain of a claim, oldest first")
     public List<HistoryEntry> history(@PathVariable String brainId, @PathVariable String claimId) {
-        return knowledge.claimHistory(actor(), brainId, claimId);
+        return knowledge.claimHistory(CurrentActor.require(), brainId, claimId);
     }
 
     @PostMapping("/claims/{claimId}/supersede")
     @Operation(summary = "Correct an ACTIVE claim: it is SUPERSEDED by the replacement")
     public ClaimWrite supersede(@PathVariable String brainId, @PathVariable String claimId,
             @RequestBody Supersession request) {
-        return knowledge.supersedeClaim(actor(), brainId, claimId, request);
+        return knowledge.supersedeClaim(CurrentActor.require(), brainId, claimId, request);
     }
 
     @PostMapping("/claims/{claimId}/retract")
     @Operation(summary = "Retract an ACTIVE or DISPUTED claim (history kept)")
     public ClaimWrite retract(@PathVariable String brainId, @PathVariable String claimId,
             @RequestBody Retraction request) {
-        return knowledge.retractClaim(actor(), brainId, claimId, request);
+        return knowledge.retractClaim(CurrentActor.require(), brainId, claimId, request);
     }
 
     @GetMapping("/sources")
     @Operation(summary = "List source references (stored, never fetched)")
     public Page<SourceInfo> listSources(@PathVariable String brainId, @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return knowledge.listSources(actor(), brainId, cursor, limit);
+        return knowledge.listSources(CurrentActor.require(), brainId, cursor, limit);
     }
 
     @GetMapping("/sources/{sourceId}")
     @Operation(summary = "A source reference with the entities it describes and the claims citing it")
     public SourceDetail getSource(@PathVariable String brainId, @PathVariable String sourceId) {
-        return knowledge.getSource(actor(), brainId, sourceId);
+        return knowledge.getSource(CurrentActor.require(), brainId, sourceId);
     }
 }

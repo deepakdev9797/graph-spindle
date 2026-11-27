@@ -23,7 +23,6 @@ public final class CorrectionCues {
     /** A preceding sentence up to this length may carry the cue for the next one. */
     static final int MAX_LEAD_SENTENCE_CHARS = 60;
     private static final int MAX_QUOTED_SPAN = 400;
-    private static final int MAX_OCCURRENCES = 64;
 
     /** "not Apache but MIT", "not GPL, but MIT"; not "not only fast but ...". */
     static final Pattern NOT_X_BUT_Y = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}])not\\s+"
@@ -85,22 +84,19 @@ public final class CorrectionCues {
      * {@link #present}.
      */
     public boolean presentNear(String text, String evidence) {
-        if (text == null || text.isEmpty()) {
+        if (text == null || text.isEmpty() || evidence == null || evidence.isBlank()) {
             return false;
         }
-        if (evidence == null || evidence.isBlank()) {
-            return present(text);
-        }
-        String folded = fold(text);
-        String masked = mask(folded);
-        Matcher m = evidencePattern(fold(evidence)).matcher(folded);
-        boolean found = false;
-        for (int n = 0; n < MAX_OCCURRENCES && m.find(); n++) {
-            found = true;
-            int start = sentenceStart(folded, m.start());
-            int end = sentenceEnd(folded, m.end());
+        // located with EvidenceChecker's own normalization (NFKC, dashes, quotes, format characters), so
+        // every quote the validator accepts is found; an unlocated quote never counts (ADR-034)
+        String masked = mask(fold(text));
+        for (int[] at : io.graphspindle.ingestion.validation.EvidenceChecker.locate(text, evidence)) {
+            // only the sentence holding the end of the quote (a quote spanning sentences does not widen it)
+            int last = Math.max(at[0], at[1] - 1);
+            int start = sentenceStart(masked, last);
+            int end = sentenceEnd(masked, last);
             if (start > 0) {
-                int leadStart = sentenceStart(folded, start - 1);
+                int leadStart = sentenceStart(masked, start - 1);
                 if (start - leadStart <= MAX_LEAD_SENTENCE_CHARS) {
                     start = leadStart;
                 }
@@ -109,7 +105,7 @@ public final class CorrectionCues {
                 return true;
             }
         }
-        return !found && present(text);
+        return false;
     }
 
     private boolean matches(String t) {
@@ -157,14 +153,6 @@ public final class CorrectionCues {
             }
         }
         return new String(c);
-    }
-
-    private static Pattern evidencePattern(String evidence) {
-        StringBuilder re = new StringBuilder();
-        for (String w : evidence.strip().split("\\s+")) {
-            re.append(re.isEmpty() ? "" : "\\s+").append(Pattern.quote(w));
-        }
-        return Pattern.compile(re.toString(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 
     private static int sentenceStart(String h, int from) {

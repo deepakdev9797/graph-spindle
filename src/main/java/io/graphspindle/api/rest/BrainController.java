@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.api.rest.BrainDtos.BrainResponse;
 import io.graphspindle.api.rest.BrainDtos.CreateBrainRequest;
 import io.graphspindle.api.rest.BrainDtos.UpdateBrainRequest;
@@ -38,7 +39,7 @@ public class BrainController {
     @PostMapping
     @Operation(summary = "Create a brain (and its self entity)")
     public ResponseEntity<BrainResponse> create(@RequestBody CreateBrainRequest request) {
-        Brain b = brains.create(new NewBrain(request.id(), request.name(), request.description(), request.ownerName(),
+        Brain b = brains.create(CurrentActor.require(), new NewBrain(request.id(), request.name(), request.description(), request.ownerName(),
                 request.config()));
         return ResponseEntity.created(URI.create("/api/v1/brains/" + b.id())).eTag(ETags.of(b.configVersion()))
                 .body(BrainResponse.of(b));
@@ -47,13 +48,13 @@ public class BrainController {
     @GetMapping
     @Operation(summary = "List brains")
     public List<BrainResponse> list() {
-        return brains.list().stream().map(BrainResponse::of).toList();
+        return brains.list(CurrentActor.require()).stream().map(BrainResponse::of).toList();
     }
 
     @GetMapping("/{brainId}")
     @Operation(summary = "Get a brain")
     public ResponseEntity<BrainResponse> get(@PathVariable String brainId) {
-        Brain b = brains.get(brainId);
+        Brain b = brains.get(CurrentActor.require(), brainId);
         return ResponseEntity.ok().eTag(ETags.of(b.configVersion())).body(BrainResponse.of(b));
     }
 
@@ -62,7 +63,7 @@ public class BrainController {
     public ResponseEntity<BrainResponse> update(@PathVariable String brainId,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody UpdateBrainRequest request) {
-        Brain b = brains.update(brainId, ETags.parseIfMatch(ifMatch),
+        Brain b = brains.update(CurrentActor.require(), brainId, ETags.parseIfMatch(ifMatch),
                 new BrainUpdate(request.name(), request.description(), request.config()));
         return ResponseEntity.ok().eTag(ETags.of(b.configVersion())).body(BrainResponse.of(b));
     }
@@ -71,7 +72,7 @@ public class BrainController {
     @Operation(summary = "Delete a brain and all its knowledge; requires confirm=<brainId>")
     public ResponseEntity<Void> delete(@PathVariable String brainId,
             @RequestParam(name = "confirm", required = false) String confirm) {
-        brains.delete(brainId, confirm);
+        brains.delete(CurrentActor.require(), brainId, confirm);
         return ResponseEntity.noContent().build();
     }
 }

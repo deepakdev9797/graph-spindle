@@ -364,9 +364,17 @@ Types: `String(n)` is a string with at most n Unicode code points. `Enum` values
 | `id` | String(16) | Public key id, also embedded in the token |
 | `name` | String(100) | |
 | `secretHash` | String(64) | SHA-256 hex of the secret part (high-entropy random, so no slow KDF is needed) |
-| `scopes` | List<String> | `BRAIN_READ`, `BRAIN_WRITE`, `INGEST`, `BRAIN_ADMIN` |
-| `brainIds` | List<String> | Brains the key may access. `["*"]` only for admin-created global keys. |
-| `createdAt`, `lastUsedAt`, `revokedAt` | DateTime | |
+| `createdBy` | String | Principal that created it (`admin` or a key id) |
+| `createdAt`, `expiresAt`, `lastUsedAt`, `revokedAt` | DateTime | `expiresAt` optional; `lastUsedAt` updated at most once a minute |
+
+#### ApiKeyGrant (system, brain-scoped; ADR-033)
+
+| Property | Type | Notes |
+|---|---|---|
+| `brainId` | String | The brain this grant opens; deleted with the brain |
+| `keyId` | String(16) | The `ApiKey.id` |
+| `permission` | Enum `READ` \| `WRITE` \| `ADMIN` | |
+| `createdAt` | DateTime | |
 
 ---
 

@@ -1,6 +1,9 @@
 spring:
   application:
     name: graph-spindle
+  autoconfigure:
+    # API keys only (ADR-033): no generated in-memory user/password
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   neo4j:
     uri: ${GRAPHSPINDLE_NEO4J_URI:bolt://localhost:7687}
     authentication:
@@ -109,9 +112,10 @@ graphspindle:
     # deadline of one LLM call, and of all LLM calls of one ingestion together
     call-timeout: ${GRAPHSPINDLE_LLM_CALL_TIMEOUT:90s}
     timeout: ${GRAPHSPINDLE_LLM_TIMEOUT:120s}
-    # PROVIDER_SCHEMA: our JSON schema is sent as the provider's structured-output format (when the
-    # provider's options support it; otherwise PROMPT is used). PROMPT: schema only in the prompt.
-    structured-output: ${GRAPHSPINDLE_LLM_STRUCTURED_OUTPUT:PROVIDER_SCHEMA}
+    # AUTO (default): PROVIDER_SCHEMA for Ollama (verified), PROMPT for remote providers, whose support of
+    # our $defs/$ref schema is unverified (ADR-035). PROVIDER_SCHEMA: our JSON schema is sent as the
+    # provider's structured-output format (when its options support it). PROMPT: schema only in the prompt.
+    structured-output: ${GRAPHSPINDLE_LLM_STRUCTURED_OUTPUT:AUTO}
   ingestion:
     # words that mark an explicit correction (ADR-028). The ENGINE decides whether a supersede_claim is an
     # explicit correction: without one of these cues (whole words/phrases, case-insensitive) in the
@@ -144,6 +148,10 @@ graphspindle:
       - is wrong
       - mistake
       - rather than
+  mcp:
+    # abandoned MCP sessions expire; the session count is capped (ADR-034)
+    session-idle-timeout: ${GRAPHSPINDLE_MCP_SESSION_IDLE_TIMEOUT:30m}
+    max-sessions: ${GRAPHSPINDLE_MCP_MAX_SESSIONS:1000}
   vocabulary:
     # optional operator file merged over classpath:vocabulary/core-v1.yml (ADR-025), e.g. file:/etc/graphspindle/vocabulary.yml
     location: ${GRAPHSPINDLE_VOCABULARY_LOCATION:}
@@ -152,6 +160,26 @@ graphspindle:
   api:
     # request body cap (413 LIMIT_EXCEEDED above it)
     max-request-bytes: ${GRAPHSPINDLE_MAX_REQUEST_BYTES:1048576}
+  security:
+    # API key authentication on /api/**, /mcp and the docs (ADR-033). false is refused unless the server
+    # is bound to loopback (then every request acts as the admin; local development only).
+    enabled: ${GRAPHSPINDLE_SECURITY_ENABLED:true}
+    # bootstrap admin key (>= 32 characters), from the environment only; required on a non-loopback bind.
+    # Only its SHA-256 is kept in memory; it is never logged.
+    admin-api-key: ${GRAPHSPINDLE_ADMIN_API_KEY:}
+    # AUTO: Swagger UI and /v3/api-docs are open while bound to loopback and need a key otherwise;
+    # PUBLIC | AUTHENTICATED force one or the other
+    api-docs: ${GRAPHSPINDLE_API_DOCS_ACCESS:AUTO}
+    # DNS-rebinding protection on REST and MCP (ADR-034): accepted Host headers and browser Origins,
+    # comma-separated; "host:*" = any port, "*" = anything. Add your hostname when you expose the server.
+    allowed-hosts: ${GRAPHSPINDLE_ALLOWED_HOSTS:localhost:*,127.0.0.1:*,[::1]:*}
+    allowed-origins: ${GRAPHSPINDLE_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*,http://[::1]:*,https://localhost:*,https://127.0.0.1:*,https://[::1]:*}
+    rate-limit:
+      # in-memory, per instance: authenticated requests and ingestions per principal per minute, and
+      # requests with an invalid key per client address per minute before 429
+      requests-per-minute: ${GRAPHSPINDLE_RATE_LIMIT_REQUESTS:300}
+      ingest-per-minute: ${GRAPHSPINDLE_RATE_LIMIT_INGEST:30}
+      failed-auth-per-minute: ${GRAPHSPINDLE_RATE_LIMIT_FAILED_AUTH:20}
 server:
   # Local-only by default; expose deliberately and only with authentication enabled.
   address: ${GRAPHSPINDLE_BIND_ADDRESS:127.0.0.1}
@@ -161,3 +189,8 @@ management:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # /actuator/health is unauthenticated: status only, never details
+      show-details: never
+      show-components: never

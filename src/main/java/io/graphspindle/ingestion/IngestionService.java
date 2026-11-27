@@ -4,6 +4,8 @@ import io.graphspindle.brain.Brain;
 import io.graphspindle.brain.BrainConfig;
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.common.Actor;
+import io.graphspindle.common.Permission;
+import io.graphspindle.security.RateLimiter;
 import io.graphspindle.common.BrainScope;
 import io.graphspindle.common.ErrorCode;
 import io.graphspindle.common.GraphSpindleException;
@@ -71,13 +73,15 @@ public class IngestionService {
     private final IngestionPipeline pipeline;
     private final IngestionLlm llm;
     private final LlmProperties llmProperties;
+    private final RateLimiter rateLimiter;
     private final SecretScanner secrets = new SecretScanner();
     private final JsonMapper json = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
     public IngestionService(BrainService brains, IngestionStore store, GraphReader reader, IngestionPipeline pipeline,
-            IngestionLlm llm, LlmProperties llmProperties) {
+            IngestionLlm llm, LlmProperties llmProperties, RateLimiter rateLimiter) {
         this.brains = brains;
+        this.rateLimiter = rateLimiter;
         this.store = store;
         this.reader = reader;
         this.pipeline = pipeline;
@@ -87,9 +91,10 @@ public class IngestionService {
 
     /** Remembers the content (sync). {@code dryRun} returns the plan without persisting anything. */
     public IngestResult ingest(Actor actor, String brainId, IngestRequest request, boolean dryRun, boolean force) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.WRITE);
+        rateLimiter.acquireIngest(actor);
         Admitted a = admit(request);
-        Brain brain = brains.get(scope.brainId());
+        Brain brain = brains.get(actor, scope.brainId());
         BrainConfig config = brain.config();
 
         if (!dryRun) {
@@ -183,7 +188,7 @@ public class IngestionService {
     }
 
     public IngestResult get(Actor actor, String brainId, String ingestionId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         if (ingestionId == null || ingestionId.length() > 64) {
             throw GraphSpindleException.notFound("ingestion", ingestionId);
         }
@@ -192,7 +197,7 @@ public class IngestionService {
     }
 
     public IngestResult getByRequestId(Actor actor, String brainId, String requestId) {
-        BrainScope scope = brains.requireActive(brainId);
+        BrainScope scope = brains.requireActive(actor, brainId, Permission.READ);
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) {
             throw GraphSpindleException.notFound("ingestion", requestId);
         }

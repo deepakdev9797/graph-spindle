@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Every Cypher statement constant contains {@code $brainId} (ADR-004), except schema statements and
- * the allowlisted brain listing; and no Cypher text exists anywhere outside the graph module's
+ * the allowlisted brain listing and global API key statements; and no Cypher text exists anywhere outside the graph module's
  * {@code *Statements} classes.
  */
 class CypherScopingTest {
@@ -24,8 +24,10 @@ class CypherScopingTest {
     static final String INTERNAL = "io.graphspindle.graph.internal.";
     static final List<String> STATEMENT_CLASSES = List.of("BrainStatements", "EntityStatements", "AliasStatements",
             "ClaimStatements", "ProjectionStatements", "IngestionStatements", "SourceStatements", "ConflictStatements",
-            "VerifierStatements", "KnowledgeStatements", "RetrievalStatements");
-    static final Set<String> ALLOWLIST = Set.of("BrainStatements.LIST_ALL");
+            "VerifierStatements", "KnowledgeStatements", "RetrievalStatements", "ApiKeyStatements");
+    /** The brain listing and the global API key statements (lookup, list, revoke by key id; ADR-033). */
+    static final Set<String> ALLOWLIST = Set.of("BrainStatements.LIST_ALL", "ApiKeyStatements.CREATE",
+            "ApiKeyStatements.FIND", "ApiKeyStatements.LIST_ALL", "ApiKeyStatements.REVOKE", "ApiKeyStatements.TOUCH");
     static final Pattern CYPHER = Pattern.compile(
             "\\b(MATCH|MERGE|CREATE) \\(|DETACH DELETE|CREATE (CONSTRAINT|INDEX|FULLTEXT)|CALL db\\.|\\bRETURN [a-z]");
 

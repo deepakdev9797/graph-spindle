@@ -12,11 +12,32 @@ import java.util.Optional;
  * handle. Handles outside this set are rejected ({@code UNKNOWN_HANDLE}); that is what stops a
  * prompt-injected model from naming arbitrary nodes or nodes of another brain.
  */
-public record CandidateSet(Map<String, EntityCandidate> entities, Map<String, ClaimCandidate> claims) {
+public record CandidateSet(Map<String, EntityCandidate> entities, Map<String, ClaimCandidate> claims,
+        java.util.Set<String> hidden) {
 
     public CandidateSet {
         entities = Collections.unmodifiableMap(new LinkedHashMap<>(entities));
         claims = Collections.unmodifiableMap(new LinkedHashMap<>(claims));
+        hidden = hidden == null ? java.util.Set.of() : java.util.Set.copyOf(hidden);
+    }
+
+    public CandidateSet(Map<String, EntityCandidate> entities, Map<String, ClaimCandidate> claims) {
+        this(entities, claims, java.util.Set.of());
+    }
+
+    /**
+     * The same candidates, but only the handles the model was shown can be referenced (ADR-034):
+     * candidates left out of the prompt for length are {@code UNKNOWN_HANDLE} like any invented
+     * handle. The engine's own lookups (by key, name, id) still see every candidate.
+     */
+    public CandidateSet addressableOnly(java.util.Set<String> shownHandles) {
+        if (shownHandles == null) {
+            return this;
+        }
+        java.util.Set<String> h = new java.util.HashSet<>(entities.keySet());
+        h.addAll(claims.keySet());
+        h.removeAll(shownHandles);
+        return new CandidateSet(entities, claims, h);
     }
 
     public static CandidateSet empty() {
@@ -28,11 +49,11 @@ public record CandidateSet(Map<String, EntityCandidate> entities, Map<String, Cl
     }
 
     public Optional<EntityCandidate> entity(String handle) {
-        return Optional.ofNullable(entities.get(handle));
+        return hidden.contains(handle) ? Optional.empty() : Optional.ofNullable(entities.get(handle));
     }
 
     public Optional<ClaimCandidate> claim(String handle) {
-        return Optional.ofNullable(claims.get(handle));
+        return hidden.contains(handle) ? Optional.empty() : Optional.ofNullable(claims.get(handle));
     }
 
     public Optional<EntityCandidate> byCanonicalKey(String canonicalKey) {

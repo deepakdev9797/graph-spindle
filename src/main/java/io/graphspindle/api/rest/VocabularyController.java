@@ -1,5 +1,6 @@
 package io.graphspindle.api.rest;
 
+import io.graphspindle.security.CurrentActor;
 import io.graphspindle.brain.BrainService;
 import io.graphspindle.brain.BrainVocabularyView;
 import io.graphspindle.vocabulary.AttributePredicateDef;
@@ -34,7 +35,7 @@ public class VocabularyController {
     @GetMapping
     @Operation(summary = "The brain's resolved vocabulary and its configuration")
     public ResponseEntity<VocabularyResponse> get(@PathVariable String brainId) {
-        return respond(brains.vocabularyView(brainId));
+        return respond(brains.vocabularyView(CurrentActor.require(), brainId));
     }
 
     @PutMapping
@@ -42,7 +43,7 @@ public class VocabularyController {
     public ResponseEntity<VocabularyResponse> put(@PathVariable String brainId,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody VocabularyConfig config) {
-        return respond(brains.updateVocabulary(brainId, ETags.parseIfMatch(ifMatch), config));
+        return respond(brains.updateVocabulary(CurrentActor.require(), brainId, ETags.parseIfMatch(ifMatch), config));
     }
 
     private static ResponseEntity<VocabularyResponse> respond(BrainVocabularyView view) {
