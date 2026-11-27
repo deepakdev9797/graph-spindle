@@ -89,7 +89,7 @@ class LiveIngestionSmokeIT extends AbstractNeo4jIT {
         // the shared test client has a short read timeout; a live ingestion may take up to graphspindle.llm.timeout
         var http = java.net.http.HttpClient.newHttpClient();
         var response = http.send(java.net.http.HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/brains/dev/ingestions"))
-                .timeout(java.time.Duration.ofSeconds(180)).header("Content-Type", "application/json")
+                .timeout(java.time.Duration.ofSeconds(180)).header("Content-Type", "application/json").header("X-API-Key", io.graphspindle.support.TestKeys.ADMIN)
                 .POST(java.net.http.HttpRequest.BodyPublishers.ofString(KnowledgeApi.json(Map.of("requestId", "smoke-1",
                         "content", "I am building GraphSpindle in Java. It uses Neo4j and Spring AI. I decided to use"
                                 + " Apache 2.0.")))).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
