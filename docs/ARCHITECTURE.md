@@ -313,22 +313,29 @@ Swagger UI is at `/swagger-ui.html` and OpenAPI at `/v3/api-docs`. Both require 
 
 ## 11. MCP tools (same services, same guard)
 
-Implemented as `@Tool`-annotated methods on `api.mcp.McpTools` and registered through a `ToolCallbackProvider` (`MethodToolCallbackProvider.builder().toolObjects(...)`). **VERIFY** whether Spring AI 2.1 prefers the MCP-specific annotations (`@McpTool` / `@McpToolParam`) and how auto-registration works. Use whichever is current. The behaviour contract is the same either way.
+Implemented in M8 (ADR-032) as `@McpTool` methods on `api.mcp.McpTools` (Spring AI annotation scanner), served over Streamable HTTP at `/mcp` on the REST server. Every tool takes `brainId` explicitly (except `list_brains`), resolves its `Actor` from the MCP transport context (`api.mcp.McpCaller`), and makes one call to the service its REST endpoint calls. Results are compact JSON `{"untrusted":true,"notice":…,"result":<the REST body>}`; errors are tool errors (`isError`) `{"error":{"code","status","detail",…}}` with the REST problem-detail values. A FAILED ingestion is a tool error with its error code plus the result.
 
-| Tool | Args | Delegates to |
+| Tool | Args | Delegates to (REST twin) |
 |---|---|---|
-| `list_brains` | none | `BrainService.list` |
-| `get_vocabulary` | brainId | `VocabularyRegistry.forBrain` |
+| `list_brains` | none | `BrainService.list` (`GET /brains`) |
+| `get_brain` | brainId | `BrainService.get` |
+| `list_node_types` / `list_relationship_types` | brainId | `VocabularyTypeService.nodeTypes/relationshipTypes` (read-only) |
 | `remember` | brainId, content, contentType?, requestId?, sources?, speaker?, occurredAt?, dryRun? | `IngestionService.ingest` |
+| `get_ingestion` | brainId, ingestionId? \| requestId? | `IngestionService.get/getByRequestId` |
 | `search_knowledge` | brainId, query, types?, limit? | `SearchService.search` |
-| `get_entity_context` | brainId, entityId | `EntityContextService.context` |
-| `get_neighbors` | brainId, entityId, depth?, predicates? | `NeighborhoodService.neighbors` |
-| `list_claims` | brainId, subjectId?, predicate?, status? | `KnowledgeService.listClaims` |
-| `get_claim_history` | brainId, claimId | `KnowledgeService.claimHistory` |
-| `correct_claim` | brainId, claimId, action (`SUPERSEDE`\|`RETRACT`), replacement?, reason | `KnowledgeService.supersedeClaim/retractClaim` |
-| `list_conflicts` | brainId, status? | `ConflictService.list` |
-| `resolve_conflict` | brainId, conflictId, resolution, note? | `ConflictService.resolve` |
-| `get_ingestion` | brainId, ingestionId | `IngestionService.get` |
+| `list_entities` | brainId, type?, status?, cursor?, limit? | `KnowledgeService.listEntities` |
+| `get_entity` | brainId, entityId, includeClaims?, asOf?, maxClaims? | `EntityReadService.read` (plain view; claims add the context text) |
+| `get_entity_history` | brainId, entityId, limit? | `NodeViewService.history` |
+| `get_neighbors` | brainId, entityId, depth?, predicates?, limit? | `NeighborhoodService.neighbors` |
+| `list_claims` | brainId, subjectId?, objectId?, predicate?, status?, cursor?, limit? | `KnowledgeService.listClaims` |
+| `get_claim` / `get_claim_history` | brainId, claimId | `KnowledgeService.getClaim/claimHistory` |
+| `assert_claim` | brainId, subjectId, predicate, objectId? \| value?, polarity?, statement?, validFrom?, validTo? | `KnowledgeService.assertClaim` (MANUAL) |
+| `supersede_claim` | brainId, claimId, reason, objectId? \| value?, polarity?, statement?, validFrom?, validTo? | `KnowledgeService.supersedeClaim` |
+| `retract_claim` | brainId, claimId, reason | `KnowledgeService.retractClaim` |
+| `list_conflicts` / `get_conflict` | brainId, status?, kind?, cursor?, limit? / conflictId | `ConflictService.list/get` |
+| `resolve_conflict` | brainId, conflictId, resolution, note?, survivorId?, validFrom?, validTo? | `ConflictService.resolve` |
+
+`get_vocabulary` and `correct_claim` of the original plan became the read-only type tools and separate `supersede_claim`/`retract_claim` (clearer argument schemas).
 
 Admin operations (brain create/delete, keys, vocabulary edits) are REST-only in the MVP, which reduces the attack surface for agents. Tool errors map to MCP error results that carry the same error codes as REST ProblemDetails.
 

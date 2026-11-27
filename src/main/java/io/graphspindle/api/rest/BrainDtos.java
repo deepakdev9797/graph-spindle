@@ -5,8 +5,8 @@ import io.graphspindle.brain.BrainConfig;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 
-/** REST DTOs for brains. */
-final class BrainDtos {
+/** REST DTOs for brains; {@link BrainResponse} is also the MCP brain view (same JSON). */
+public final class BrainDtos {
 
     private BrainDtos() {
     }
@@ -26,10 +26,10 @@ final class BrainDtos {
     }
 
     @Schema(name = "Brain")
-    record BrainResponse(String id, String name, String description, String status, long configVersion,
+    public record BrainResponse(String id, String name, String description, String status, long configVersion,
             String selfEntityId, BrainConfig config, Instant createdAt, Instant updatedAt) {
 
-        static BrainResponse of(Brain b) {
+        public static BrainResponse of(Brain b) {
             return new BrainResponse(b.id(), b.name(), b.description(), b.status(), b.configVersion(),
                     b.selfEntityId(), b.config(), b.createdAt(), b.updatedAt());
         }

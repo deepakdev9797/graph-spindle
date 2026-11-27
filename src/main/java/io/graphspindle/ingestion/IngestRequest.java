@@ -2,6 +2,7 @@ package io.graphspindle.ingestion;
 
 import java.time.Instant;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An ingestion submission (ARCHITECTURE §3 stage 0). {@code content} is untrusted text; sources are
@@ -22,11 +23,11 @@ public record IngestRequest(String content, String contentType, String requestId
     }
 
     /** A reference to where the knowledge came from (SCHEMA §5.4 SourceRef); never dereferenced. */
-    public record Source(String kind, String locator, String title, String summary, String mediaType,
-            String contentHash) {
+    public record Source(String kind, String locator, @Nullable String title, @Nullable String summary,
+            @Nullable String mediaType, @Nullable String contentHash) {
     }
 
     /** The author of the content: a Person or an Agent of this brain (resolved by name). */
-    public record Speaker(String type, String name) {
+    public record Speaker(@Nullable String type, String name) {
     }
 }

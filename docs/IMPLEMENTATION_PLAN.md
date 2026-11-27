@@ -188,6 +188,8 @@ The work is a series of vertical slices. Every milestone ends with a green `./mv
 - `RestMcpParityIT`: a parameterized suite where each scenario (remember the README example, search, entity context, correct claim, list and resolve conflict, invalid brain, invalid vocabulary output) runs through REST and through MCP and produces equal normalized results and equal error codes.
 - `McpIsolationIT`: tool calls with brain B ids under a brain A argument return NOT_FOUND.
 
+**Status:** done (ADR-032). `McpToolListIT`, `McpParityIT` (every tool against its REST twin: reads on the same data, writes in mirror brains with ids normalized, error codes/status/detail), `McpIsolationIT`, `McpSafetyIT` (injected graph text returned as untrusted data, LLM unavailable as tool error). No authentication yet: the principal extension point is in place for M9.
+
 ## M9: Security and authentication
 
 **Scope**
